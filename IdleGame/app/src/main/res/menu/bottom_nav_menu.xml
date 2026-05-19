@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <item
+        android:id="@+id/nav_home"
+        android:icon="@drawable/ic_nav_home"
+        android:title="ホーム" />
+
+    <item
+        android:id="@+id/nav_weapon"
+        android:icon="@drawable/ic_nav_weapon"
+        android:title="武器" />
+
+    <item
+        android:id="@+id/nav_enhancement"
+        android:icon="@drawable/ic_nav_enhancement"
+        android:title="強化" />
+
+    <item
+        android:id="@+id/nav_shop"
+        android:icon="@drawable/ic_nav_shop"
+        android:title="ショップ" />
+
+    <item
+        android:id="@+id/nav_settings"
+        android:icon="@drawable/ic_nav_settings"
+        android:title="設定" />
+
+</menu>

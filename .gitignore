@@ -1,0 +1,42 @@
+# ===== Android =====
+**/build/
+**/.gradle/
+**/.idea/
+**/local.properties
+*.jks
+*.keystore
+*.apk
+*.aab
+
+# ===== Python =====
+**/venv/
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+**/*.pyd
+**/.pytest_cache/
+**/*.sqlite3
+**/.env
+**/staticfiles/
+
+# ===== Java / Maven =====
+**/target/
+
+# ===== インフラ（念のため） =====
+docker-compose*.yml
+Dockerfile
+Dockerfile.*
+**/nginx*.conf
+**/nginx*.sh
+**/entrypoint.sh
+**/scripts/
+
+# ===== 管理用ドキュメント（非公開）=====
+/CLAUDE.md
+/⚠️_開発禁止_ポートフォリオ公開用コピー.md
+**/PLAYSTORE_RELEASE.md
+
+# ===== IDE / OS =====
+**/.vscode/
+.DS_Store
+Thumbs.db

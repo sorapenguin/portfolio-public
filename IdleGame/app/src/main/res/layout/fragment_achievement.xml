@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/background">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="16dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="実績"
+            android:textSize="24sp"
+            android:textStyle="bold"
+            android:textColor="@color/gold"
+            android:layout_marginBottom="4dp" />
+
+        <TextView
+            android:id="@+id/tv_ach_gem_total"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textSize="14sp"
+            android:textColor="@color/gem"
+            android:layout_marginBottom="16dp"
+            android:text="ジェム: 0" />
+
+        <LinearLayout
+            android:id="@+id/ll_achievement_list"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical" />
+
+    </LinearLayout>
+</ScrollView>

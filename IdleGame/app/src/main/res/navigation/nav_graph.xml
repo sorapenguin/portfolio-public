@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<navigation
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/nav_graph"
+    app:startDestination="@id/nav_home">
+
+    <fragment
+        android:id="@+id/nav_home"
+        android:name="com.example.idlegame.ui.main.MainFragment"
+        android:label="ホーム" />
+
+    <fragment
+        android:id="@+id/nav_weapon"
+        android:name="com.example.idlegame.ui.weapon.WeaponFragment"
+        android:label="武器" />
+
+    <fragment
+        android:id="@+id/nav_shop"
+        android:name="com.example.idlegame.ui.shop.ShopFragment"
+        android:label="ショップ" />
+
+    <fragment
+        android:id="@+id/nav_settings"
+        android:name="com.example.idlegame.ui.settings.SettingsFragment"
+        android:label="設定" />
+
+    <fragment
+        android:id="@+id/nav_enhancement"
+        android:name="com.example.idlegame.ui.enhancement.EnhancementFragment"
+        android:label="強化" />
+
+    <fragment
+        android:id="@+id/nav_prestige"
+        android:name="com.example.idlegame.ui.prestige.PrestigeFragment"
+        android:label="輝石" />
+
+    <fragment
+        android:id="@+id/nav_achievement"
+        android:name="com.example.idlegame.ui.achievement.AchievementFragment"
+        android:label="実績" />
+
+    <fragment
+        android:id="@+id/nav_recipe"
+        android:name="com.example.idlegame.ui.recipe.RecipeFragment"
+        android:label="レシピ" />
+
+</navigation>

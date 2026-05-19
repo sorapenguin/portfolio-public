@@ -1,0 +1,124 @@
+/* 全体 */
+body {
+  font-family: Arial, sans-serif;
+  margin: 0;
+  background-color: #f5f6fa;
+  color: #333;
+}
+
+/* コンテナ */
+.container {
+  max-width: 800px;
+  margin: 40px auto;
+  padding: 20px;
+  background: white;
+  border-radius: 10px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+/* ヘッダー */
+header {
+  background-color: #2f3640;
+  color: white;
+  padding: 15px;
+  text-align: center;
+}
+
+/* フッター */
+footer {
+  background-color: #2f3640;
+  color: white;
+  text-align: center;
+  padding: 10px;
+  margin-top: 40px;
+}
+
+/* ボタン */
+button {
+  padding: 10px 16px;
+  margin: 5px 5px 0 0;
+  border: none;
+  border-radius: 6px;
+  background-color: #40739e;
+  color: white;
+  cursor: pointer;
+}
+
+button:hover {
+  background-color: #273c75;
+}
+
+/* 選択肢 */
+label {
+  display: block;
+  padding: 10px;
+  margin: 5px 0;
+  border-radius: 6px;
+  background-color: #f1f2f6;
+  cursor: pointer;
+}
+
+label:hover {
+  background-color: #dcdde1;
+}
+
+/* サイドバーレイアウト */
+.page-wrap {
+  display: flex;
+  align-items: flex-start;
+}
+
+.sidebar-nav {
+  width: 148px;
+  min-width: 148px;
+  flex-shrink: 0;
+  background: #2a3042;
+  min-height: calc(100vh - 90px);
+  padding: 18px 10px;
+}
+
+.sidebar-nav .sidebar-title {
+  font-size: 0.7rem;
+  color: #666;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  padding: 0 4px;
+  margin-bottom: 10px;
+}
+
+.cat-select {
+  width: 100%;
+  padding: 8px 6px;
+  background: #0f3460;
+  border: 1px solid #1e3a6e;
+  border-radius: 6px;
+  color: #fff;
+  font-size: 0.88rem;
+  cursor: pointer;
+  appearance: auto;
+}
+
+.cat-select:focus {
+  outline: none;
+  border-color: #7ec8e3;
+}
+
+.cat-select option {
+  background: #16213e;
+  color: #fff;
+}
+
+.page-wrap.has-sidebar .container {
+  flex: 1;
+  margin: 40px 24px;
+  max-width: 800px;
+}
+
+/* 正解・不正解 */
+.correct {
+  background-color: #c8f7c5;
+}
+
+.incorrect {
+  background-color: #f7c5c5;
+}

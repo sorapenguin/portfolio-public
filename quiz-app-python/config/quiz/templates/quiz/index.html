@@ -1,0 +1,412 @@
+{% extends "quiz/base.html" %}
+{% load ad_tags %}
+
+{% block content %}
+
+<div style="text-align: center; padding: 20px 0;">
+
+  {% if user.is_authenticated %}
+
+    {% if active_session %}
+      <p style="color: #666; margin-bottom: 8px;">
+        {{ user.username }} さん、クイズの途中です。
+        （{{ active_session.current_index }}/{{ active_session.total }} 問目）
+      </p>
+      <a href="/question/{{ active_session.current_question_id }}/?quiz_id={{ active_session.quiz_id }}">
+        <button style="font-size: 1rem; padding: 14px 32px; margin-bottom: 20px;">続きから再開</button>
+      </a>
+      <hr style="margin: 24px 0;">
+      <p style="color: #888; margin-bottom: 8px;">新しいクイズを始める</p>
+    {% else %}
+      <p style="color: #666; margin-bottom: 8px;">{{ user.username }} さん、出題対象と問題数を選んでスタートしてください。</p>
+    {% endif %}
+
+    <button type="submit" form="start-form" style="font-size: 1rem; padding: 14px 32px; margin-bottom: 20px;">
+      {% if active_session %}最初からやり直す{% else %}スタート{% endif %}
+    </button>
+
+    {% adblock %}
+    <!-- 広告プレースホルダー -->
+    <a href="https://www.google.com" target="_blank" rel="noopener" style="display:block; text-decoration:none; margin-top:32px; margin-bottom:8px;">
+      <div style="
+        background:#e8e8e8; border:1px solid #ccc; border-radius:6px;
+        height:90px; display:flex; align-items:center; justify-content:center;
+        color:#999; font-size:0.85rem; letter-spacing:0.05em;
+      ">広告</div>
+    </a>
+    {% endadblock %}
+
+    {% if no_questions %}
+      <p style="color: #c0392b; margin-bottom: 12px;">
+        選択した条件に該当する問題がありません。条件を変えて試してください。
+      </p>
+    {% endif %}
+    {% if no_stamina %}
+      <p style="color: #c0392b; margin-bottom: 12px;">
+        スタミナが不足しています。回復してから挑戦してください。
+      </p>
+    {% endif %}
+    {% if no_prev_session %}
+      <p style="color: #c0392b; margin-bottom: 12px;">
+        前回の問題履歴がありません。「新しい問題に挑戦」を選択してください。
+      </p>
+    {% endif %}
+    {% if no_wrong %}
+      <p style="color: #c0392b; margin-bottom: 12px;">
+        前回の問題はすべて正解でした。「新しい問題に挑戦」または「同じ問題に挑戦」を試してください。
+      </p>
+    {% endif %}
+    {% if wrong_autoplay %}
+      <p style="color: #c0392b; margin-bottom: 12px;">
+        前回の問題は自動再生モードでした。「新しい問題に挑戦」または「同じ問題に挑戦」を試してください。
+      </p>
+    {% endif %}
+
+      <!-- 解放状況（HTMLのフォームネスト禁止ルールに対応し、スタートフォームの外に配置） -->
+      {% if unlock_info %}
+      <div style="margin-bottom: 16px; background: #1e3a5f; border: 1px solid #2d5986;
+                  border-radius: 8px; padding: 10px 16px; font-size: 0.88rem;">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
+          <span style="color: #7ec8e3;">🔓 解放済み問題</span>
+          <span style="color: #fff; font-weight: bold;">
+            {{ unlock_info.unlocked }} / {{ unlock_info.total }} 問
+          </span>
+        </div>
+        <div style="background: #0d1f33; border-radius: 4px; height: 6px; overflow: hidden; margin-bottom: 10px;">
+          {% widthratio unlock_info.unlocked unlock_info.total 100 as pct %}
+          <div style="background: #7ec8e3; width: {{ pct }}%; height: 100%;"></div>
+        </div>
+        <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+          <!-- 10問解放ボタン -->
+          <form method="post" action="/gem/use/" style="margin:0;">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="unlock">
+            <input type="hidden" name="category" value="{{ current_category }}">
+            <input type="hidden" name="next" value="/{{ current_category }}/">
+            <button type="submit"
+              {% if not unlock_info.can_unlock_more or profile.gems < 1 %}disabled{% endif %}
+              style="font-size:0.8rem; padding:4px 12px; border-radius:5px; border:none; cursor:pointer;
+                     background:{% if unlock_info.can_unlock_more and profile.gems >= 1 %}#2d5986{% else %}#3a3a3a{% endif %};
+                     color:{% if unlock_info.can_unlock_more and profile.gems >= 1 %}#fff{% else %}#666{% endif %};">
+              💎 10問解放（石1個）
+            </button>
+          </form>
+          <!-- スタミナ回復ボタン（無料ユーザーのみ表示） -->
+          {% if not user_is_premium %}
+          <form method="post" action="/gem/use/" style="margin:0;">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="stamina">
+            <input type="hidden" name="next" value="/{{ current_category }}/">
+            <button type="submit"
+              {% if profile.gems < 1 %}disabled{% endif %}
+              style="font-size:0.8rem; padding:4px 12px; border-radius:5px; border:none; cursor:pointer;
+                     background:{% if profile.gems >= 1 %}#2d5986{% else %}#3a3a3a{% endif %};
+                     color:{% if profile.gems >= 1 %}#fff{% else %}#666{% endif %};">
+              💎 スタミナ回復（石1個）
+            </button>
+          </form>
+          {% endif %}
+        </div>
+        {% if profile.gems == 0 %}
+        <p style="color: #888; margin: 8px 0 0; font-size: 0.8rem;">
+          レベルアップすると青い石を獲得できます
+        </p>
+        {% endif %}
+      </div>
+      {% endif %}
+
+    <form id="start-form" method="get" action="/{{ current_category }}/start/">
+
+      <!-- 自動再生設定 -->
+      <details style="text-align: left; background: #1e3a5f; border: 1px solid #2d5986; border-radius: 8px; padding: 4px 16px; margin-bottom: 16px;">
+        <summary style="cursor: pointer; font-weight: bold; padding: 12px 0; list-style: none; display: flex; align-items: center; gap: 6px; color: #7ec8e3;">
+          <span id="autoplay-arrow">▶</span> 自動再生モード
+        </summary>
+
+        <div style="padding: 12px 0 16px; color: #ccc;">
+
+          <div style="margin-bottom: 14px;">
+            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+              <input type="checkbox" name="autoplay" value="1" id="autoplay-toggle"
+                {% if autoplay_enabled %}checked{% endif %}>
+              <span>自動再生を有効にする</span>
+            </label>
+          </div>
+
+          <div id="autoplay-options" style="{% if not autoplay_enabled %}display:none;{% endif %}">
+            <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap;">
+              <span style="min-width: 120px;">解答表示まで</span>
+              <input type="number" name="check_sec" value="{{ autoplay_check_sec }}" min="1" max="30"
+                style="width: 60px; padding: 6px; border: 1px solid #2d5986; border-radius: 4px;
+                       background: #0d1f33; color: #fff; text-align: right;">
+              <span>秒</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+              <span style="min-width: 120px;">次の問題まで</span>
+              <input type="number" name="next_sec" value="{{ autoplay_next_sec }}" min="1" max="30"
+                style="width: 60px; padding: 6px; border: 1px solid #2d5986; border-radius: 4px;
+                       background: #0d1f33; color: #fff; text-align: right;">
+              <span>秒</span>
+            </div>
+            <div style="margin-top: 14px; border-top: 1px solid #2d5986; padding-top: 12px;">
+              <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; flex-wrap: wrap;">
+                <input type="checkbox" name="voice" value="1" id="voice-toggle">
+                <span>音声読み上げを有効にする</span>
+                <select name="voice_rate" style="padding: 3px 8px; border: 1px solid #2d5986;
+                        border-radius: 4px; background: #0d1f33; color: #fff; font-size: 0.88rem;">
+                  {% for rate in voice_rate_choices %}
+                    <option value="{{ rate }}" {% if rate == "1.0" %}selected{% endif %}>{{ rate }}x</option>
+                  {% endfor %}
+                </select>
+              </label>
+              <p style="font-size: 0.82rem; color: #7ec8e3; margin: 6px 0 0;">
+                ※ 問題文を読み上げてからタイマー開始、正解を読み上げてから次の問題へ移動
+              </p>
+            </div>
+
+            <p style="font-size: 0.82rem; color: #7ec8e3; margin-top: 10px;">
+              ※ 自動再生モードでは正解/不正解はカウントされません（1問 1 XP）
+            </p>
+          </div>
+
+        </div>
+      </details>
+
+      <!-- 挑戦モード -->
+      <div style="margin: 16px 0; text-align: left;">
+        <p style="font-weight: bold; margin-bottom: 10px;">挑戦モード</p>
+        <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+          <label style="flex: 1; min-width: 110px; cursor: pointer; display: block;">
+            <input type="radio" name="mode" value="new" id="mode-new" checked style="display: none;">
+            <div id="mode-card-new" style="border: 2px solid #ddd; border-radius: 8px; padding: 14px 10px; text-align: center; background: #f1f2f6;">
+              <div style="font-weight: bold; font-size: 0.9rem; color: #333;">新しい問題に挑戦</div>
+              <div style="font-size: 0.75rem; color: #777; margin-top: 4px;">設定通りにランダム出題</div>
+            </div>
+          </label>
+          <label style="flex: 1; min-width: 110px; cursor: pointer; display: block;">
+            <input type="radio" name="mode" value="same" id="mode-same" style="display: none;">
+            <div id="mode-card-same" style="border: 2px solid #ddd; border-radius: 8px; padding: 14px 10px; text-align: center; background: #f1f2f6;">
+              <div style="font-weight: bold; font-size: 0.9rem; color: #333;">同じ問題に挑戦</div>
+              <div style="font-size: 0.75rem; color: #777; margin-top: 4px;">前回と同じ問題</div>
+            </div>
+          </label>
+          <label style="flex: 1; min-width: 110px; cursor: pointer; display: block;">
+            <input type="radio" name="mode" value="wrong" id="mode-wrong" style="display: none;">
+            <div id="mode-card-wrong" style="border: 2px solid #ddd; border-radius: 8px; padding: 14px 10px; text-align: center; background: #f1f2f6;">
+              <div style="font-weight: bold; font-size: 0.9rem; color: #333;">間違った問題に挑戦</div>
+              <div style="font-size: 0.75rem; color: #777; margin-top: 4px;">前回の不正解のみ</div>
+            </div>
+          </label>
+        </div>
+      </div>
+
+      <hr style="margin: 0 0 24px; border-color: #2d5986;">
+
+      <!-- 出題対象（ステータス） -->
+      <div style="margin-bottom: 20px;">
+        <p style="font-weight: bold; margin-bottom: 8px;">出題対象</p>
+        <div style="display: inline-flex; gap: 10px; flex-wrap: wrap; justify-content: center;">
+          {% for val, label, count in filter_choices_display %}
+          <label style="background: #f1f2f6; padding: 10px 16px; border-radius: 6px; cursor: pointer; display: flex; align-items: center; gap: 6px;">
+            <input type="checkbox" name="filter" value="{{ val }}"
+              {% if val in default_filters %}checked{% endif %}>
+            {{ label }}&nbsp;<span style="color: #888; font-size: 0.85rem;">（{{ count }}問）</span>
+          </label>
+          {% endfor %}
+        </div>
+      </div>
+
+      <!-- 問題数 -->
+      <div style="margin-bottom: 20px;">
+        <p style="font-weight: bold; margin-bottom: 8px;">問題数</p>
+        <div style="display: inline-flex; gap: 10px; flex-wrap: wrap; justify-content: center;">
+          {% for val, label in count_choices %}
+          <label style="background: #f1f2f6; padding: 10px 16px; border-radius: 6px; cursor: pointer; display: flex; align-items: center; gap: 6px;">
+            <input type="radio" name="count" value="{{ val }}"
+              {% if val == default_count %}checked{% endif %}>
+            {{ label }}
+          </label>
+          {% endfor %}
+        </div>
+      </div>
+
+      <!-- 詳細な絞り込み（折り畳み） -->
+      <details style="text-align: left; background: #f1f2f6; border-radius: 8px; padding: 4px 16px; margin-bottom: 24px;">
+        <summary style="cursor: pointer; font-weight: bold; padding: 12px 0; list-style: none; display: flex; align-items: center; gap: 6px;">
+          <span id="details-arrow">▶</span> 出題対象の絞り込み
+        </summary>
+
+        <div style="padding: 12px 0 16px;">
+
+          <!-- 正答率 -->
+          <div style="margin-bottom: 16px;">
+            <p style="font-weight: bold; margin: 0 0 8px;">正答率</p>
+            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+              <input type="number" name="min_rate" value="0" min="0" max="100"
+                style="width: 60px; padding: 6px; border: 1px solid #ccc; border-radius: 4px; text-align: right;">
+              <span>%</span>
+              <span style="color: #888;">〜</span>
+              <input type="number" name="max_rate" value="100" min="0" max="100"
+                style="width: 60px; padding: 6px; border: 1px solid #ccc; border-radius: 4px; text-align: right;">
+              <span>%</span>
+              <span style="color: #888; font-size: 0.85rem;">（未出題は対象外）</span>
+            </div>
+          </div>
+
+          <!-- 前回解答からの経過時間 -->
+          <div>
+            <p style="font-weight: bold; margin: 0 0 8px;">前回解答からの経過時間</p>
+            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+              <input type="number" name="elapsed_value" value="0" min="0"
+                style="width: 70px; padding: 6px; border: 1px solid #ccc; border-radius: 4px; text-align: right;">
+              <select name="elapsed_unit"
+                style="padding: 6px 10px; border: 1px solid #ccc; border-radius: 4px;">
+                <option value="min">分</option>
+                <option value="hour">時間</option>
+                <option value="day">日</option>
+              </select>
+              <span>以上前に解答した問題</span>
+              <span style="color: #888; font-size: 0.85rem;">（0 = 指定なし）</span>
+            </div>
+          </div>
+
+        </div>
+      </details>
+
+    </form>
+
+  {% else %}
+    <p style="color: #666; margin-bottom: 24px;">
+      ポートフォリオ閲覧用アカウントでログインしてからクイズを始められます。
+    </p>
+    <form method="post" action="/login/">
+      {% csrf_token %}
+      <button type="submit" style="font-size: 1rem; padding: 14px 32px;">
+        ログイン
+      </button>
+    </form>
+  {% endif %}
+</div>
+
+<script>
+  // details 矢印トグル
+  var allDetails = document.querySelectorAll('details');
+  var filterDetails = allDetails[0];
+  if (filterDetails) {
+    filterDetails.addEventListener('toggle', function () {
+      document.getElementById('details-arrow').textContent = filterDetails.open ? '▼' : '▶';
+    });
+  }
+  var autoplayDetails = allDetails[1];
+  if (autoplayDetails) {
+    autoplayDetails.addEventListener('toggle', function () {
+      document.getElementById('autoplay-arrow').textContent = autoplayDetails.open ? '▼' : '▶';
+    });
+  }
+
+  // 自動再生オプション表示切替
+  var autoplayToggle = document.getElementById('autoplay-toggle');
+  if (autoplayToggle) {
+    autoplayToggle.addEventListener('change', function () {
+      document.getElementById('autoplay-options').style.display = this.checked ? '' : 'none';
+    });
+  }
+
+  // 挑戦モードカードのスタイル更新
+  function updateModeCards() {
+    ['new', 'same', 'wrong'].forEach(function(m) {
+      var radio = document.getElementById('mode-' + m);
+      var card  = document.getElementById('mode-card-' + m);
+      if (!radio || !card) return;
+      if (radio.checked) {
+        card.style.borderColor = '#40739e';
+        card.style.background  = '#dbe8f5';
+      } else {
+        card.style.borderColor = '#ddd';
+        card.style.background  = '#f1f2f6';
+      }
+    });
+  }
+  document.querySelectorAll('input[name="mode"]').forEach(function(r) {
+    r.addEventListener('change', updateModeCards);
+  });
+
+  // localStorage 設定保存・復元
+  var LS_KEY = 'quiz_form_settings';
+
+  function saveSettings() {
+    var form = document.getElementById('start-form');
+    if (!form) return;
+    var s = {};
+    ['autoplay', 'voice'].forEach(function(n) {
+      var el = form.querySelector('[name="' + n + '"]');
+      if (el) s[n] = el.checked;
+    });
+    ['check_sec', 'next_sec', 'min_rate', 'max_rate', 'elapsed_value'].forEach(function(n) {
+      var el = form.querySelector('[name="' + n + '"]');
+      if (el) s[n] = el.value;
+    });
+    ['voice_rate', 'elapsed_unit'].forEach(function(n) {
+      var el = form.querySelector('[name="' + n + '"]');
+      if (el) s[n] = el.value;
+    });
+    ['count', 'mode'].forEach(function(n) {
+      var el = form.querySelector('[name="' + n + '"]:checked');
+      if (el) s[n] = el.value;
+    });
+    s['filter'] = Array.from(
+      form.querySelectorAll('[name="filter"]:checked')
+    ).map(function(e) { return e.value; });
+    try { localStorage.setItem(LS_KEY, JSON.stringify(s)); } catch(e) {}
+  }
+
+  function loadSettings() {
+    var form = document.getElementById('start-form');
+    if (!form) return;
+    var raw;
+    try { raw = localStorage.getItem(LS_KEY); } catch(e) { return; }
+    if (!raw) return;
+    var s;
+    try { s = JSON.parse(raw); } catch(e) { return; }
+
+    ['autoplay', 'voice'].forEach(function(n) {
+      if (s[n] === undefined) return;
+      var el = form.querySelector('[name="' + n + '"]');
+      if (!el) return;
+      el.checked = s[n];
+      el.dispatchEvent(new Event('change'));
+    });
+    ['check_sec', 'next_sec', 'min_rate', 'max_rate', 'elapsed_value'].forEach(function(n) {
+      if (s[n] === undefined) return;
+      var el = form.querySelector('[name="' + n + '"]');
+      if (el) el.value = s[n];
+    });
+    ['voice_rate', 'elapsed_unit'].forEach(function(n) {
+      if (s[n] === undefined) return;
+      var el = form.querySelector('[name="' + n + '"]');
+      if (el) el.value = s[n];
+    });
+    ['count', 'mode'].forEach(function(n) {
+      if (s[n] === undefined) return;
+      var el = form.querySelector('[name="' + n + '"][value="' + s[n] + '"]');
+      if (el) { el.checked = true; el.dispatchEvent(new Event('change')); }
+    });
+    if (Array.isArray(s['filter'])) {
+      form.querySelectorAll('[name="filter"]').forEach(function(el) {
+        el.checked = s['filter'].indexOf(el.value) !== -1;
+      });
+    }
+  }
+
+  window.addEventListener('DOMContentLoaded', function() {
+    loadSettings();
+    updateModeCards(); // localStorage の有無に関わらず初期スタイルを適用
+    var form = document.getElementById('start-form');
+    if (form) {
+      form.addEventListener('change', saveSettings);
+      form.addEventListener('submit', saveSettings);
+    }
+  });
+</script>
+
+{% endblock %}

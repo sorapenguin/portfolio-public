@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Quiz App</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+  <style>
+    .hud-bar-track {
+      display: inline-block;
+      width: 80px; height: 8px;
+      background: #4a5568;
+      border-radius: 4px;
+      vertical-align: middle;
+      margin: 0 4px;
+      overflow: hidden;
+    }
+    .hud-bar-fill    { height: 100%; border-radius: 4px; transition: width 0.3s; width: 0; }
+    .hud-xp-fill     { background: #f9ca24; }
+    .hud-st-normal   { background: #00cec9; }
+    .hud-st-low      { background: #e17055; }
+    .hud-txt-normal  { color: #aaa; }
+    .hud-txt-low     { color: #e17055; font-weight: bold; }
+    .recover-btn {
+      font-size: 0.72rem; padding: 2px 8px;
+      background: #636e72; color: white;
+      border: none; border-radius: 4px; cursor: pointer; margin-left: 6px;
+      vertical-align: middle;
+    }
+    .recover-btn:hover { background: #2d3436; }
+
+    /* トーストシステム */
+    #toast-container {
+      position: fixed;
+      top: 16px;
+      right: 16px;
+      z-index: 9999;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      pointer-events: none;
+    }
+    .toast {
+      min-width: 200px;
+      max-width: 320px;
+      padding: 10px 16px;
+      border-radius: 6px;
+      color: #fff;
+      font-size: 0.85rem;
+      line-height: 1.4;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.35);
+      pointer-events: auto;
+      opacity: 0;
+      transform: translateX(60px);
+      transition: opacity 0.3s ease, transform 0.3s ease;
+    }
+    .toast.toast-show { opacity: 1; transform: translateX(0); }
+    .toast.toast-hide { opacity: 0; transform: translateX(60px); }
+    .toast-premium { background: #6c5ce7; border-left: 4px solid #a29bfe; }
+    .toast-success  { background: #00897b; border-left: 4px solid #80cbc4; }
+    .toast-error    { background: #c62828; border-left: 4px solid #ef9a9a; }
+    .toast-info     { background: #1565c0; border-left: 4px solid #90caf9; }
+  </style>
+</head>
+<body>
+
+<div id="toast-container"></div>
+
+<header style="display:flex; justify-content:space-between; align-items:center; padding:12px 20px; flex-wrap:wrap; gap:8px;">
+
+  <div>
+    <h1 style="margin:0; font-size:1.3rem;">
+      <a href="/top/" style="color:inherit; text-decoration:none;">Quiz App</a>
+    </h1>
+    {% if user.is_authenticated %}
+    <div style="font-size:0.78rem; color:#7ec8e3; margin-top:2px;">{{ user.username }} でログイン中</div>
+    <div style="font-size:0.78rem; color:#aaa; margin-top:1px;">{{ current_category }}</div>
+    {% endif %}
+  </div>
+
+  {% if user.is_authenticated %}
+  <div style="text-align:right; font-size:0.82rem; line-height:1.9;">
+
+    <!-- レベル & XP バー & ジェム -->
+    <div>
+      <span style="font-weight:bold;">Lv.{{ level_info.level }}</span>
+      <span class="hud-bar-track">
+        <span class="hud-bar-fill hud-xp-fill" data-pct="{{ level_info.progress_pct }}"></span>
+      </span>
+      {% if level_info.is_max_level %}
+        <span style="color:#f9ca24;">MAX</span>
+      {% else %}
+        <span style="color:#aaa;">{{ level_info.xp_in_level }}/{{ level_info.xp_for_next }} XP</span>
+      {% endif %}
+      <span style="margin-left:10px; color:#7ec8e3;">💎 {{ profile.gems }}</span>
+    </div>
+
+    <!-- スタミナバー & 回復ボタン -->
+    <div>
+      <span>⚡</span>
+      <span class="hud-bar-track">
+        <span id="hud-st-fill"
+              class="hud-bar-fill {% if stamina_low %}hud-st-low{% else %}hud-st-normal{% endif %}"
+              data-pct="{{ stamina_pct }}"></span>
+      </span>
+      <span id="hud-st-text"
+            class="{% if stamina_low %}hud-txt-low{% else %}hud-txt-normal{% endif %}">
+        {{ profile.stamina }}/{{ stamina_max }}
+      </span>
+      <span id="hud-st-recovery"
+            style="color:#888; font-size:0.75rem;">{% if full_recovery_min %}（全回復まで{{ full_recovery_min }}分）{% endif %}</span>
+      <button type="button" class="recover-btn"
+              data-is-premium="{% if user_is_premium %}1{% else %}0{% endif %}"
+              data-csrf="{{ csrf_token }}"
+              onclick="handleStaminaRecover(this)">回復</button>
+    </div>
+
+    <!-- ユーザー情報 & ナビ -->
+    <div style="color:#ccc;">
+      <a href="/top/" style="color:#ccc;">トップ</a>
+      &nbsp;|&nbsp;<a href="/mypage/" style="color:#aaa;">マイページ</a>
+      &nbsp;|&nbsp;<a href="/{{ current_category }}/history/" style="color:#aaa;">履歴一覧</a>
+      &nbsp;|&nbsp;<a href="/logout/" style="color:#aaa;">ログアウト</a>
+    </div>
+
+  </div>
+  {% endif %}
+
+</header>
+
+<div class="page-wrap">
+  <div class="container">
+    {% block content %}{% endblock %}
+  </div>
+</div>
+
+<footer>
+  <p>© 2026 Quiz App</p>
+</footer>
+
+<script>
+  document.querySelectorAll('.hud-bar-fill[data-pct]').forEach(function(el) {
+    el.style.width = el.getAttribute('data-pct') + '%';
+  });
+
+  // 汎用トースト通知（type: 'premium' | 'success' | 'error' | 'info'）
+  function showToast(message, type) {
+    var container = document.getElementById('toast-container');
+    var toast = document.createElement('div');
+    toast.className = 'toast toast-' + (type || 'info');
+    toast.textContent = message;
+    container.appendChild(toast);
+    toast.offsetHeight; // reflow
+    toast.classList.add('toast-show');
+    setTimeout(function() {
+      toast.classList.remove('toast-show');
+      toast.classList.add('toast-hide');
+      setTimeout(function() { if (toast.parentNode) toast.parentNode.removeChild(toast); }, 350);
+    }, 5000);
+  }
+
+  function handleStaminaRecover(btn) {
+    if (btn.dataset.isPremium !== '1') {
+      showToast('この機能は有料プラン専用です', 'premium');
+      return;
+    }
+    btn.disabled = true;
+    fetch('/stamina/recover/', {
+      method: 'POST',
+      headers: {
+        'X-CSRFToken': btn.dataset.csrf,
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+    })
+    .then(function(res) { return res.json(); })
+    .then(function(data) {
+      var fill = document.getElementById('hud-st-fill');
+      var text = document.getElementById('hud-st-text');
+      var recovery = document.getElementById('hud-st-recovery');
+      fill.style.width = data.stamina_pct + '%';
+      fill.className = 'hud-bar-fill ' + (data.stamina_low ? 'hud-st-low' : 'hud-st-normal');
+      text.className = data.stamina_low ? 'hud-txt-low' : 'hud-txt-normal';
+      text.textContent = data.stamina + '/' + data.stamina_max;
+      recovery.textContent = data.full_recovery_min ? '（全回復まで' + data.full_recovery_min + '分）' : '';
+      btn.disabled = false;
+    })
+    .catch(function() { btn.disabled = false; });
+  }
+</script>
+
+</body>
+</html>

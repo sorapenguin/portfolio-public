@@ -1,0 +1,168 @@
+plugins {
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.android'
+    id 'kotlin-kapt'
+}
+
+android {
+    namespace 'com.example.idlegame'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "dev.sorapenguin.idlegame"
+        minSdk 24
+        targetSdk 34
+        versionCode (System.getenv("VERSION_CODE")?.toInteger() ?: 1)
+        versionName "0.1.0"
+        buildConfigField "String", "API_BASE_URL", '"https://game.sorapenguin.dev/"'
+    }
+
+    // ============================================================
+    // 署名設定
+    // 環境変数またはローカルの keystore/ ディレクトリを参照する
+    // ============================================================
+    signingConfigs {
+        release {
+            storeFile file(System.getenv("KEYSTORE_PATH") ?: "keystore/idlegame.keystore")
+            storePassword System.getenv("KEYSTORE_PASSWORD") ?: ""
+            keyAlias System.getenv("KEY_ALIAS") ?: "idlegame"
+            keyPassword System.getenv("KEY_PASSWORD") ?: ""
+        }
+    }
+
+    // ============================================================
+    // 4 バリアント構成
+    //
+    //  flavor \ buildType |  debug                          | release
+    // --------------------+---------------------------------+----------------------------------
+    //  store              | storeDebug                      | storeRelease  ← Play Store
+    //                     | ADS=true / FAKE=false           | ADS=true / FAKE=false
+    //                     | テスト AdMob ID / ローカルAPI   | 本番 AdMob ID (要差替) / 本番API
+    // --------------------+---------------------------------+----------------------------------
+    //  portfolio          | portfolioDebug                  | portfolioRelease  ← GitHub配布
+    //                     | ADS=false / FAKE=true           | ADS=false / FAKE=true
+    //                     | 偽広告3秒 / ローカルAPI         | 偽広告3秒 / 本番API
+    // ============================================================
+    flavorDimensions += "distribution"
+    productFlavors {
+        store {
+            dimension "distribution"
+            buildConfigField "Boolean", "ADS_ENABLED", "true"
+            buildConfigField "Boolean", "FAKE_AD_MODE", "false"
+            // TODO [storeRelease]: 本番 AdMob App ID に差し替える
+            manifestPlaceholders = [admobAppId: "ca-app-pub-3940256099942544~3347511713"]
+        }
+        portfolio {
+            dimension "distribution"
+            buildConfigField "Boolean", "ADS_ENABLED", "false"
+            buildConfigField "Boolean", "FAKE_AD_MODE", "true"
+            manifestPlaceholders = [admobAppId: "ca-app-pub-3940256099942544~3347511713"]
+            applicationIdSuffix ".portfolio"
+            versionNameSuffix "-portfolio"
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            signingConfig signingConfigs.release
+        }
+        debug {
+            minifyEnabled false
+            buildConfigField "String", "API_BASE_URL", '"http://10.0.2.2:8082/"'
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+
+    kotlinOptions {
+        jvmTarget = '1.8'
+    }
+
+    buildFeatures {
+        viewBinding true
+        buildConfig true
+    }
+
+}
+
+afterEvaluate {
+    // The project path contains non-ASCII characters which corrupt the JVM -classpath
+    // argument on Windows. Mirror every project-local classpath entry to TEMP (ASCII).
+    def tempRoot = new File(System.env.TEMP ?: System.env.TMP ?: System.properties['java.io.tmpdir'], "idlegame-test")
+
+    // flavor + buildType の組み合わせ分ループ（例: portfolioDebug, storeDebug）
+    ["portfolioDebug", "storeDebug"].each { variant ->
+        def cap = variant.capitalize()
+
+        def copyTestClasses = tasks.register("copy${cap}TestClassesToTemp", Copy) {
+            from "${buildDir}/tmp/kotlin-classes/${variant}UnitTest"
+            into new File(tempRoot, "${variant}-test-classes")
+            dependsOn "compile${cap}UnitTestKotlin"
+        }
+
+        def copyKaptClasses = tasks.register("copy${cap}KaptClassesToTemp", Copy) {
+            from "${buildDir}/tmp/kapt3/classes/${variant}UnitTest"
+            into new File(tempRoot, "${variant}-kapt-classes")
+            dependsOn "kapt${cap}UnitTestKotlin"
+        }
+
+        def copyAppJar = tasks.register("copy${cap}AppJarToTemp", Copy) {
+            from "${buildDir}/intermediates/runtime_app_classes_jar/${variant}/classes.jar"
+            into new File(tempRoot, "${variant}-app-jar")
+            rename { "classes.jar" }
+            dependsOn "bundle${cap}ClassesToRuntimeJar"
+        }
+
+        tasks.named("test${cap}UnitTest", Test) { test ->
+            dependsOn copyTestClasses, copyKaptClasses, copyAppJar
+
+            def testClassesTemp = project.files(new File(tempRoot, "${variant}-test-classes"))
+            def kaptClassesTemp = project.files(new File(tempRoot, "${variant}-kapt-classes"))
+            def appJarTemp      = project.files(new File(tempRoot, "${variant}-app-jar/classes.jar"))
+
+            test.testClassesDirs = testClassesTemp
+            def filteredCp = test.classpath.filter { f ->
+                !f.absolutePath.contains("kotlin-classes") &&
+                !f.absolutePath.contains("kapt3") &&
+                !f.absolutePath.contains("runtime_app_classes_jar")
+            }
+            test.classpath = testClassesTemp + kaptClassesTemp + appJarTemp + filteredCp
+        }
+    }
+}
+
+dependencies {
+    implementation 'androidx.core:core-ktx:1.12.0'
+    implementation 'androidx.appcompat:appcompat:1.6.1'
+    implementation 'com.google.android.material:material:1.11.0'
+    implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
+    implementation 'androidx.fragment:fragment-ktx:1.6.2'
+    implementation 'androidx.lifecycle:lifecycle-viewmodel-ktx:2.7.0'
+    implementation 'androidx.lifecycle:lifecycle-runtime-ktx:2.7.0'
+    implementation 'androidx.navigation:navigation-fragment-ktx:2.7.7'
+    implementation 'androidx.navigation:navigation-ui-ktx:2.7.7'
+    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3'
+    implementation 'androidx.recyclerview:recyclerview:1.3.2'
+    implementation 'com.google.android.gms:play-services-ads:23.2.0'
+
+    implementation 'com.squareup.retrofit2:retrofit:2.9.0'
+    implementation 'com.squareup.retrofit2:converter-gson:2.9.0'
+    implementation 'com.squareup.okhttp3:logging-interceptor:4.12.0'
+
+    implementation 'androidx.room:room-runtime:2.6.1'
+    implementation 'androidx.room:room-ktx:2.6.1'
+    kapt 'androidx.room:room-compiler:2.6.1'
+
+    implementation 'androidx.datastore:datastore-preferences:1.0.0'
+    implementation 'androidx.security:security-crypto:1.1.0-alpha06'
+
+    implementation 'androidx.work:work-runtime-ktx:2.9.0'
+
+    testImplementation 'junit:junit:4.13.2'
+}

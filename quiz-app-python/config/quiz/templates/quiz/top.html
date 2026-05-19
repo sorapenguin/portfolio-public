@@ -1,0 +1,402 @@
+{% extends "quiz/base.html" %}
+{% load ad_tags %}
+
+{% block content %}
+
+<!-- 購入成功トースト -->
+<div id="purchase-toast" style="
+  display:none; position:fixed; top:50%; left:50%; transform:translate(-50%,-50%);
+  background:#27ae60; color:#fff; font-size:1.2rem; font-weight:bold;
+  padding:24px 48px; border-radius:12px; z-index:9999;
+  box-shadow:0 4px 24px rgba(0,0,0,0.25); text-align:center;
+">購入に成功しました！🎉</div>
+
+<!-- 購入失敗トースト -->
+<div id="purchase-error-toast" style="
+  display:none; position:fixed; top:50%; left:50%; transform:translate(-50%,-50%);
+  background:#c0392b; color:#fff; font-size:1rem; font-weight:bold;
+  padding:24px 40px; border-radius:12px; z-index:9999;
+  box-shadow:0 4px 24px rgba(0,0,0,0.25); text-align:center; max-width:90vw;
+"></div>
+
+<!-- 購入モーダル オーバーレイ -->
+<div id="purchase-overlay" style="
+  display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5);
+  z-index:1000; align-items:center; justify-content:center;
+">
+  <div style="
+    background:#fff; border-radius:14px; padding:28px 32px; width:min(420px,92vw);
+    box-shadow:0 8px 32px rgba(0,0,0,0.25); position:relative;
+  ">
+    <button onclick="closePurchaseModal()" style="
+      position:absolute; top:10px; right:14px; background:none; border:none;
+      font-size:1.4rem; cursor:pointer; color:#888;
+    ">✕</button>
+
+    <h3 style="margin:0 0 18px; font-size:1.1rem; text-align:center;">プランを選択してください</h3>
+
+    <!-- プラン選択 -->
+    <div id="already-premium-msg" style="
+      display:none; background:#fff3cd; border:1px solid #ffc107; color:#856404;
+      border-radius:8px; padding:10px 14px; margin-bottom:12px;
+      font-size:0.9rem; text-align:center;
+    ">既にプレミアムユーザーです</div>
+    <div id="plan-select-area">
+      <div class="plan-card" onclick="selectPlan('gem1',100,'💎 ジェム1個')" style="
+        border:2px solid #ddd; border-radius:10px; padding:14px 16px; margin-bottom:10px;
+        cursor:pointer; transition:border-color 0.15s, background 0.15s;
+        display:flex; justify-content:space-between; align-items:center;
+      ">
+        <span>💎 ジェム 1個</span><span style="font-weight:bold; color:#2980b9;">¥100</span>
+      </div>
+      <div class="plan-card" onclick="selectPlan('gem6',500,'💎 ジェム6個')" style="
+        border:2px solid #ddd; border-radius:10px; padding:14px 16px; margin-bottom:10px;
+        cursor:pointer; transition:border-color 0.15s, background 0.15s;
+        display:flex; justify-content:space-between; align-items:center;
+      ">
+        <span>💎 ジェム 6個 <span style="color:#e67e22; font-size:0.82rem;">おトク！</span></span>
+        <span style="font-weight:bold; color:#2980b9;">¥500</span>
+      </div>
+      <div class="plan-card" onclick="selectPlan('monthly',500,'⭐ 30日プレミアム')" style="
+        border:2px solid #ddd; border-radius:10px; padding:14px 16px; margin-bottom:10px;
+        cursor:pointer; transition:border-color 0.15s, background 0.15s;
+        display:flex; justify-content:space-between; align-items:center;
+      ">
+        <span>⭐ 30日プレミアム</span><span style="font-weight:bold; color:#2980b9;">¥500/30日</span>
+      </div>
+    </div>
+
+    <!-- カード入力エリア（プラン選択後に表示） -->
+    <div id="card-input-area" style="display:none; margin-top:16px;">
+      <div style="font-size:0.82rem; color:#e74c3c; text-align:center; margin-bottom:10px;">
+        ※ ポートフォリオデモのため手動入力は無効です
+      </div>
+      <div style="margin-bottom:10px;">
+        <label style="font-size:0.85rem; color:#555; display:block; margin-bottom:4px;">カード番号</label>
+        <input type="text" value="4242 4242 4242 4242" readonly style="
+          width:100%; padding:10px; border:1px solid #ccc; border-radius:6px;
+          font-size:1rem; background:#f5f5f5; color:#555; box-sizing:border-box; cursor:not-allowed;
+        ">
+      </div>
+      <div style="display:flex; gap:12px; margin-bottom:10px;">
+        <div style="flex:1;">
+          <label style="font-size:0.85rem; color:#555; display:block; margin-bottom:4px;">有効期限</label>
+          <input type="text" value="12 / 28" readonly style="
+            width:100%; padding:10px; border:1px solid #ccc; border-radius:6px;
+            font-size:1rem; background:#f5f5f5; color:#555; box-sizing:border-box; cursor:not-allowed;
+          ">
+        </div>
+        <div style="flex:1;">
+          <label style="font-size:0.85rem; color:#555; display:block; margin-bottom:4px;">CVV</label>
+          <input type="text" value="123" readonly style="
+            width:100%; padding:10px; border:1px solid #ccc; border-radius:6px;
+            font-size:1rem; background:#f5f5f5; color:#555; box-sizing:border-box; cursor:not-allowed;
+          ">
+        </div>
+      </div>
+      <div id="payment-amount-display" style="
+        text-align:center; font-size:1.15rem; font-weight:bold; color:#2c3e50;
+        margin:14px 0 18px; padding:12px; background:#eef6ff; border-radius:8px;
+      "></div>
+      <button onclick="doPurchase()" style="
+        width:100%; padding:13px; font-size:1rem; font-weight:bold;
+        background:#2980b9; color:#fff; border:none; border-radius:8px; cursor:pointer;
+      ">購入する</button>
+      <button onclick="backToPlanSelect()" style="
+        width:100%; padding:9px; font-size:0.9rem; margin-top:8px;
+        background:none; border:1px solid #ccc; border-radius:8px; cursor:pointer; color:#666;
+      ">← プラン選択に戻る</button>
+    </div>
+  </div>
+</div>
+
+<!-- ヒーローセクション -->
+<div style="text-align:center; padding:36px 0 28px;">
+  <h2 style="font-size:1.8rem; margin-bottom:10px;">IT スキルをクイズで鍛えよう</h2>
+  <p style="color:#555; font-size:1rem; max-width:480px; margin:0 auto 8px;">
+    Java・AWS（SAA）・Python・Docker・Kubernetes・Terraform など<br>
+    IT 資格対策やスキルアップに役立つ問題を無料で練習できます。
+  </p>
+  <p style="color:#888; font-size:0.88rem; margin-bottom:24px;">
+    正誤記録・経験値・スタミナシステムで継続学習をサポート。
+  </p>
+
+  {% if user.is_authenticated %}
+    <a href="/{{ current_category }}/">
+      <button style="font-size:1rem; padding:12px 32px;">問題を始める</button>
+    </a>
+  {% else %}
+    <a href="/login/">
+      <button style="font-size:1rem; padding:12px 32px;">ログイン</button>
+    </a>
+    <a href="/register/">
+      <button style="font-size:1rem; padding:12px 32px; background:#27ae60;">新規登録（無料）</button>
+    </a>
+  {% endif %}
+</div>
+
+<!-- カテゴリ一覧 -->
+<h3 style="margin:0 0 14px; font-size:1rem; color:#444; border-bottom:1px solid #ddd; padding-bottom:6px;">
+  カテゴリ一覧
+</h3>
+<div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(160px, 1fr)); gap:12px; margin-bottom:32px;">
+  {% for cat, count in category_counts %}
+  <a href="/{{ cat }}/" style="text-decoration:none;">
+    <div style="
+      background:#f1f2f6; border-radius:8px; padding:18px 12px;
+      text-align:center; border:1px solid #ddd; cursor:pointer;
+      transition:background 0.15s, box-shadow 0.15s;
+    "
+      onmouseover="this.style.background='#dcdde1'; this.style.boxShadow='0 2px 8px rgba(0,0,0,0.1)'"
+      onmouseout="this.style.background='#f1f2f6'; this.style.boxShadow='none'">
+      <div style="font-size:1.05rem; font-weight:bold; color:#2d3436;">{{ cat }}</div>
+      <div style="color:#636e72; font-size:0.85rem; margin-top:6px;">{{ count }} 問</div>
+    </div>
+  </a>
+  {% endfor %}
+</div>
+
+<!-- 特徴紹介 -->
+<h3 style="margin:0 0 14px; font-size:1rem; color:#444; border-bottom:1px solid #ddd; padding-bottom:6px;">
+  サイトの特徴
+</h3>
+<ul style="color:#555; line-height:2; padding-left:20px; margin-bottom:24px;">
+  <li>正解 / 不正解 / 未出題でフィルターして弱点を集中対策</li>
+  <li>経験値・レベルシステムで学習の進捗を可視化</li>
+  <li>スタミナシステムで無理なく継続</li>
+  <li>自動再生モードでながら学習</li>
+  <li>解説付きで理解を深める</li>
+</ul>
+
+{% adblock %}
+<!-- 広告プレースホルダー -->
+<a href="https://www.google.com" target="_blank" rel="noopener" style="display:block; text-decoration:none; margin:24px 0 0;">
+  <div style="
+    background:#e8e8e8; border:1px solid #ccc; border-radius:6px;
+    height:90px; display:flex; align-items:center; justify-content:center;
+    color:#999; font-size:0.85rem; letter-spacing:0.05em;
+  ">広告</div>
+</a>
+{% endadblock %}
+
+<!-- ミニジェム & 有料ユーザー登録エリア -->
+<div style="border-top:1px solid #e0e0e0; margin-top:32px; padding-top:28px;">
+  <h3 style="margin:0 0 16px; font-size:1rem; color:#444; border-bottom:1px solid #ddd; padding-bottom:6px;">
+    ジェムを入手する
+  </h3>
+  <div style="display:flex; flex-wrap:wrap; gap:16px; align-items:flex-start; justify-content:center; margin-bottom:24px;">
+
+    {% if user.is_authenticated %}
+    <!-- ミニジェムボタン -->
+    <div style="
+      background:#f8f9fa; border:1px solid #ddd; border-radius:12px;
+      padding:18px 20px; text-align:center; min-width:200px; flex:1; max-width:280px;
+    ">
+      <div style="font-size:1.5rem; margin-bottom:6px;">🪨</div>
+      <div style="font-weight:bold; font-size:0.95rem; margin-bottom:4px;">ミニジェム</div>
+      <div style="font-size:0.8rem; color:#888; margin-bottom:10px;">
+        所持: <span id="mini-gem-count">{{ profile.mini_gems|default:0 }}</span>個
+        &nbsp;|&nbsp; 100個 = 💎1個と交換
+      </div>
+      <button id="mini-gem-btn" onclick="claimMiniGems()" style="
+        padding:10px 18px; font-size:0.9rem; background:#8e44ad; color:#fff;
+        border:none; border-radius:8px; cursor:pointer; width:100%; margin-bottom:8px;
+      ">1時間ごとに5個ゲット</button>
+      <div id="mini-gem-timer" style="font-size:0.82rem; color:#888; min-height:18px;"></div>
+      {% if profile.mini_gems >= 100 %}
+      <button onclick="exchangeMiniGems()" style="
+        padding:8px 14px; font-size:0.85rem; background:#27ae60; color:#fff;
+        border:none; border-radius:8px; cursor:pointer; width:100%; margin-top:6px;
+      ">💎1個と交換（100個消費）</button>
+      {% endif %}
+    </div>
+    {% endif %}
+
+    <!-- 有料ユーザー登録ボタン -->
+    <div style="
+      background:#fffbf0; border:2px solid #f39c12; border-radius:12px;
+      padding:18px 20px; text-align:center; min-width:200px; flex:1; max-width:280px;
+    ">
+      <div style="font-size:1.5rem; margin-bottom:6px;">⭐</div>
+      <div style="font-weight:bold; font-size:0.95rem; margin-bottom:4px;">有料プラン</div>
+      <div style="font-size:0.8rem; color:#888; margin-bottom:10px;">
+        ジェム購入 or 1か月プレミアム
+      </div>
+      {% if user.is_authenticated %}
+      <button onclick="openPurchaseModal()" style="
+        padding:10px 18px; font-size:0.95rem; font-weight:bold;
+        background:#f39c12; color:#fff; border:none; border-radius:8px;
+        cursor:pointer; width:100%;
+      ">有料ユーザー登録</button>
+      {% else %}
+      <a href="/login/">
+        <button style="
+          padding:10px 18px; font-size:0.95rem; font-weight:bold;
+          background:#f39c12; color:#fff; border:none; border-radius:8px;
+          cursor:pointer; width:100%;
+        ">ログインして購入</button>
+      </a>
+      {% endif %}
+    </div>
+
+  </div>
+</div>
+
+<script>
+(function() {
+  var secondsLeft = {{ mini_gem_seconds_left|default:0 }};
+  var timerInterval = null;
+
+  function formatTime(sec) {
+    var m = Math.floor(sec / 60);
+    var s = sec % 60;
+    return m + '分' + (s > 0 ? s + '秒' : '');
+  }
+
+  function updateTimerDisplay() {
+    var timerEl = document.getElementById('mini-gem-timer');
+    var btnEl = document.getElementById('mini-gem-btn');
+    if (!timerEl) return;
+    if (secondsLeft > 0) {
+      timerEl.textContent = '次の獲得まで: ' + formatTime(secondsLeft);
+      if (btnEl) btnEl.disabled = true;
+      secondsLeft--;
+    } else {
+      timerEl.textContent = '今すぐ獲得できます！';
+      if (btnEl) btnEl.disabled = false;
+      clearInterval(timerInterval);
+    }
+  }
+
+  if (secondsLeft > 0) {
+    updateTimerDisplay();
+    timerInterval = setInterval(updateTimerDisplay, 1000);
+  }
+
+  window.claimMiniGems = function() {
+    var btn = document.getElementById('mini-gem-btn');
+    if (btn) btn.disabled = true;
+    fetch('/mini-gem/claim/', {
+      method: 'POST',
+      headers: {'X-CSRFToken': getCsrf(), 'X-Requested-With': 'XMLHttpRequest'},
+    })
+    .then(function(r){ return r.json(); })
+    .then(function(data) {
+      var countEl = document.getElementById('mini-gem-count');
+      var timerEl = document.getElementById('mini-gem-timer');
+      if (data.ok) {
+        if (countEl) countEl.textContent = data.mini_gems;
+        secondsLeft = 3600;
+        updateTimerDisplay();
+        timerInterval = setInterval(updateTimerDisplay, 1000);
+        if (data.mini_gems >= 100) location.reload();
+      } else {
+        secondsLeft = data.seconds_left || 3600;
+        if (timerEl) timerEl.textContent = '次の獲得まで: ' + formatTime(secondsLeft);
+        timerInterval = setInterval(updateTimerDisplay, 1000);
+      }
+    });
+  };
+
+  window.exchangeMiniGems = function() {
+    fetch('/mini-gem/exchange/', {
+      method: 'POST',
+      headers: {'X-CSRFToken': getCsrf(), 'X-Requested-With': 'XMLHttpRequest'},
+    })
+    .then(function(r){ return r.json(); })
+    .then(function(data) {
+      if (data.ok) {
+        location.reload();
+      } else {
+        alert(data.message || '交換に失敗しました');
+      }
+    });
+  };
+})();
+
+var _selectedPlanType = '';
+var _selectedAmount = 0;
+var _selectedLabel = '';
+var _isPremium = {% if user_is_premium %}true{% else %}false{% endif %};
+
+window.openPurchaseModal = function() {
+  document.getElementById('purchase-overlay').style.display = 'flex';
+  document.getElementById('plan-select-area').style.display = 'block';
+  document.getElementById('card-input-area').style.display = 'none';
+  document.getElementById('already-premium-msg').style.display = 'none';
+  _selectedPlanType = '';
+};
+
+window.closePurchaseModal = function() {
+  document.getElementById('purchase-overlay').style.display = 'none';
+};
+
+window.selectPlan = function(planType, amount, label) {
+  if (planType === 'monthly' && _isPremium) {
+    var msg = document.getElementById('already-premium-msg');
+    msg.style.display = 'block';
+    setTimeout(function(){ msg.style.display = 'none'; }, 3000);
+    return;
+  }
+  _selectedPlanType = planType;
+  _selectedAmount = amount;
+  _selectedLabel = label;
+  document.getElementById('plan-select-area').style.display = 'none';
+  document.getElementById('card-input-area').style.display = 'block';
+  document.getElementById('payment-amount-display').textContent =
+    _selectedLabel + ' — 決済金額: ¥' + amount;
+};
+
+window.backToPlanSelect = function() {
+  document.getElementById('plan-select-area').style.display = 'block';
+  document.getElementById('card-input-area').style.display = 'none';
+};
+
+window.doPurchase = function() {
+  if (!_selectedPlanType) return;
+  var formData = new FormData();
+  formData.append('plan_type', _selectedPlanType);
+  formData.append('csrfmiddlewaretoken', getCsrf());
+  fetch('/purchase/confirm/', { method: 'POST', body: formData })
+  .then(function(r){ return r.json(); })
+  .then(function(data) {
+    if (data.ok) {
+      closePurchaseModal();
+      var toast = document.getElementById('purchase-toast');
+      toast.style.display = 'block';
+      var delay = data.type === 'monthly' ? 5000 : 3000;
+      setTimeout(function(){ toast.style.display = 'none'; location.reload(); }, delay);
+    } else {
+      closePurchaseModal();
+      var errToast = document.getElementById('purchase-error-toast');
+      errToast.textContent = data.message || '購入に失敗しました';
+      errToast.style.display = 'block';
+      setTimeout(function(){ errToast.style.display = 'none'; }, 5000);
+    }
+  });
+};
+
+function getCsrf() {
+  var name = 'csrftoken';
+  var cookies = document.cookie.split(';');
+  for (var i = 0; i < cookies.length; i++) {
+    var c = cookies[i].trim();
+    if (c.indexOf(name + '=') === 0) return c.substring(name.length + 1);
+  }
+  return '';
+}
+
+// プランカードのホバー効果
+document.querySelectorAll('.plan-card').forEach(function(card) {
+  card.addEventListener('mouseenter', function() {
+    this.style.borderColor = '#2980b9';
+    this.style.background = '#eef6ff';
+  });
+  card.addEventListener('mouseleave', function() {
+    this.style.borderColor = '#ddd';
+    this.style.background = '';
+  });
+});
+</script>
+
+{% endblock %}

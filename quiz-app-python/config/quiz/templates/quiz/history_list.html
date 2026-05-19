@@ -1,0 +1,126 @@
+{% extends "quiz/base.html" %}
+
+{% block content %}
+<h2>解答履歴一覧 — {{ category }}</h2>
+
+<!-- ステータスバー -->
+{% if total_questions %}
+<div style="margin-bottom: 32px;">
+  <p style="font-weight: bold; margin-bottom: 10px;">問題ステータス（全 {{ total_questions }} 問）</p>
+
+  <!-- カラーバー：flex比率で各ステータスの割合を表現 -->
+  <div style="display:flex; height:36px; border-radius:8px; overflow:hidden; margin-bottom:10px;">
+    <div style="flex:{{ status_counts.未出題 }}; background:#b2bec3;"
+         title="未出題 {{ status_counts.未出題 }}問"></div>
+    <div style="flex:{{ status_counts.ミス }};   background:#e17055;"
+         title="ミス {{ status_counts.ミス }}問"></div>
+    <div style="flex:{{ status_counts.ヒット }}; background:#55efc4;"
+         title="ヒット {{ status_counts.ヒット }}問"></div>
+    <div style="flex:{{ status_counts.コンボ }}; background:#00b894;"
+         title="コンボ {{ status_counts.コンボ }}問"></div>
+  </div>
+
+  <!-- 凡例 -->
+  <div style="display:flex; gap:20px; flex-wrap:wrap; font-size:0.9rem;">
+    <span>
+      <span style="display:inline-block; width:12px; height:12px; background:#b2bec3; border-radius:2px; vertical-align:middle;"></span>
+      未出題&nbsp;<strong>{{ status_counts.未出題 }}</strong>問
+    </span>
+    <span>
+      <span style="display:inline-block; width:12px; height:12px; background:#e17055; border-radius:2px; vertical-align:middle;"></span>
+      ミス&nbsp;<strong>{{ status_counts.ミス }}</strong>問
+    </span>
+    <span>
+      <span style="display:inline-block; width:12px; height:12px; background:#55efc4; border-radius:2px; vertical-align:middle;"></span>
+      ヒット&nbsp;<strong>{{ status_counts.ヒット }}</strong>問
+    </span>
+    <span>
+      <span style="display:inline-block; width:12px; height:12px; background:#00b894; border-radius:2px; vertical-align:middle;"></span>
+      コンボ&nbsp;<strong>{{ status_counts.コンボ }}</strong>問
+    </span>
+  </div>
+</div>
+{% endif %}
+
+<!-- 過去のクイズ一覧 -->
+{% if sessions %}
+<table border="1" style="width:100%; border-collapse:collapse;">
+  <tr>
+    <th style="padding:8px;">解答日時</th>
+    <th style="padding:8px;">問題数</th>
+    <th style="padding:8px;">正解数</th>
+    <th style="padding:8px;">正答率</th>
+    <th style="padding:8px;">詳細</th>
+  </tr>
+  {% for s in sessions %}
+  <tr>
+    <td style="padding:8px;">{{ s.created_at|date:"Y/m/d H:i" }}</td>
+    <td style="padding:8px; text-align:center;">{{ s.total }}問</td>
+    <td style="padding:8px; text-align:center;">{{ s.correct }}問</td>
+    <td style="padding:8px; text-align:center;">{{ s.rate }}%</td>
+    <td style="padding:8px; text-align:center;">
+      <button class="detail-btn"
+              data-href="/history/?quiz_id={{ s.quiz_id }}&category={{ category }}"
+              data-is-premium="{% if user_is_premium %}1{% else %}0{% endif %}"
+              onclick="handleDetailView(this)">詳細を見る</button>
+    </td>
+  </tr>
+  {% endfor %}
+</table>
+{% else %}
+<p>まだ完了したクイズがありません。</p>
+{% endif %}
+
+<!-- ページネーション -->
+{% if page_obj.paginator.num_pages > 1 %}
+<div style="display:flex; justify-content:center; align-items:center; gap:8px; margin-top:24px; flex-wrap:wrap;">
+  {% if page_obj.has_previous %}
+    <a href="?page=1" style="padding:6px 12px; border:1px solid #2d5986; border-radius:4px; text-decoration:none;">«</a>
+    <a href="?page={{ page_obj.previous_page_number }}" style="padding:6px 12px; border:1px solid #2d5986; border-radius:4px; text-decoration:none;">‹</a>
+  {% endif %}
+
+  {% for num in page_obj.paginator.page_range %}
+    {% if num == page_obj.number %}
+      <span style="padding:6px 12px; border:1px solid #2d5986; border-radius:4px; background:#2d5986; color:#fff; font-weight:bold;">{{ num }}</span>
+    {% elif num >= page_obj.number|add:"-2" and num <= page_obj.number|add:"2" %}
+      <a href="?page={{ num }}" style="padding:6px 12px; border:1px solid #2d5986; border-radius:4px; text-decoration:none;">{{ num }}</a>
+    {% endif %}
+  {% endfor %}
+
+  {% if page_obj.has_next %}
+    <a href="?page={{ page_obj.next_page_number }}" style="padding:6px 12px; border:1px solid #2d5986; border-radius:4px; text-decoration:none;">›</a>
+    <a href="?page={{ page_obj.paginator.num_pages }}" style="padding:6px 12px; border:1px solid #2d5986; border-radius:4px; text-decoration:none;">»</a>
+  {% endif %}
+</div>
+<p style="text-align:center; color:#888; font-size:0.85rem; margin-top:8px;">
+  {{ page_obj.paginator.count }} 件中 {{ page_obj.start_index }}〜{{ page_obj.end_index }} 件表示
+</p>
+{% endif %}
+
+<br>
+<a href="/{{ category }}/">トップへ</a>
+
+<style>
+  .detail-btn {
+    font-size: 0.82rem;
+    padding: 4px 12px;
+    background: #40739e;
+    color: #fff;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    margin: 0;
+  }
+  .detail-btn:hover { background: #2d5986; }
+</style>
+
+<script>
+  function handleDetailView(btn) {
+    if (btn.dataset.isPremium !== '1') {
+      showToast('この機能は有料プラン専用です', 'premium');
+      return;
+    }
+    window.location.href = btn.dataset.href;
+  }
+</script>
+{% endblock %}

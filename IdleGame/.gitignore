@@ -1,0 +1,34 @@
+### Android ###
+*.apk
+*.aab
+*.ap_
+*.dex
+bin/
+gen/
+out/
+release/
+
+### Gradle ###
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+
+### IntelliJ / Android Studio ###
+.idea/
+*.iml
+*.iws
+*.ipr
+local.properties
+captures/
+.externalNativeBuild/
+.cxx/
+
+### Keystore ###
+*.jks
+*.keystore
+
+### macOS ###
+.DS_Store
+
+### Log files ###
+*.log
