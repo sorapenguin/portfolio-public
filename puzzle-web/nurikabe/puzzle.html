@@ -1,0 +1,285 @@
+﻿<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ヌリカベ | ソラペンパズル</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="site-header-inner">
+      <a class="brand" href="/">ソラペンパズル</a>
+      <nav class="nav">
+        <a href="/nonogram/list.html">ノノグラム</a>
+        <a href="/nurikabe/list.html">ヌリカベ</a>
+        <a href="/kakuro/list.html">カックロ</a>
+        <a href="/pixelart/list.html">ピクセルアート</a>
+        <button class="secondary" type="button" id="showUser">ユーザー名を表示</button>
+        <span data-username style="display:none"></span>
+        <button class="secondary" type="button" data-logout>ログアウト</button>
+      </nav>
+    </div>
+  </header>
+  <main class="container">
+    <div class="toolbar">
+      <button class="secondary" id="back" type="button">← 一覧に戻る</button>
+      <strong id="title">読み込み中</strong>
+    </div>
+    <div class="canvas-wrap"><canvas id="grid"></canvas></div>
+    <div class="controls">
+      <button class="secondary" id="undo" type="button" disabled>↩ Undo</button>
+      <button class="secondary" id="reset" type="button">リセット</button>
+      <button class="secondary" id="hint" type="button">? ヒント</button>
+    </div>
+    <p class="muted">クリック: 海</p>
+    <p class="error" id="message"></p>
+    <div id="notPublished" style="display:none;margin-top:16px;text-align:center">
+      <p>このパズルは公開されていないか、存在しません。</p>
+      <p style="margin-top:10px">
+        <a href="/nurikabe/list.html">一覧に戻る</a>
+        &nbsp;/&nbsp;
+        <a href="/">トップへ</a>
+      </p>
+    </div>
+  </main>
+  <div class="overlay" id="clearOverlay"><div class="overlay-box">パズルクリア！</div></div>
+  <script>
+  Promise.all([
+    import('../js/auth.js'),
+    import('../js/api.js'),
+    import('../js/nurikabe-grid.js'),
+    import('../js/nurikabe-logic.js')
+  ]).then(function(mods) {
+    var requireAuth = mods[0].requireAuth;
+    var applyHeaderUser = mods[0].applyHeaderUser;
+    var fetchJson = mods[1].fetchJson;
+    var fetchWeb = mods[1].fetchWeb;
+    var NurikabeGrid = mods[2].NurikabeGrid;
+    var NurikabeCell = mods[3].NurikabeCell;
+    var decodeNurikabeGrid = mods[3].decodeNurikabeGrid;
+    var encodeNurikabeGrid = mods[3].encodeNurikabeGrid;
+    var findNurikabeErrors = mods[3].findNurikabeErrors;
+    var verifyNurikabe = mods[3].verifyNurikabe;
+
+    var params = new URLSearchParams(location.search);
+    var urlRows = Number(params.get('rows') || 0);
+    var urlStage = Number(params.get('stage') || 0);
+    var legacyId = params.get('id');
+    var puzzle = null;
+    var puzzleId = 0;
+    var LS_KEY = '';
+    var solution = [];
+    var clues = [];
+    var grid = [];
+    var view = null;
+    var undoStack = [];
+    var cleared = false;
+
+    if (!requireAuth()) return;
+    applyHeaderUser();
+    document.getElementById('showUser').addEventListener('click', function() {
+      var el = document.querySelector('[data-username]');
+      if (el) el.style.display = '';
+      document.getElementById('showUser').style.display = 'none';
+    });
+    document.getElementById('back').addEventListener('click', function() {
+      location.href = '/nurikabe/list.html?rows=' + (puzzle ? puzzle.rows : urlRows || 5);
+    });
+    document.getElementById('undo').addEventListener('click', undo);
+    document.getElementById('reset').addEventListener('click', reset);
+    document.getElementById('hint').addEventListener('click', hint);
+    load();
+
+    function showNotPublished() {
+      document.getElementById('notPublished').style.display = '';
+      document.getElementById('message').style.display = 'none';
+      document.getElementById('title').textContent = '---';
+    }
+
+    function showLocked() {
+      document.getElementById('message').textContent = 'このステージはまだ解放されていません。';
+    }
+
+    async function load() {
+      var apiPath;
+      if (urlRows > 0 && urlStage > 0) {
+        apiPath = '/nurikabe/puzzle?rows=' + urlRows + '&stage=' + urlStage;
+      } else if (legacyId) {
+        var n = parseInt(legacyId, 10);
+        if (!n || n <= 0) { showNotPublished(); return; }
+        apiPath = '/nurikabe/puzzles/' + n;
+      } else {
+        showNotPublished(); return;
+      }
+      try {
+        puzzle = await fetchJson(apiPath);
+        puzzleId = puzzle.id;
+        LS_KEY = 'nuri_progress_' + puzzleId;
+        solution = parseJsonField(puzzle.solutionJson || puzzle.solution_json || puzzle.solution, []);
+        clues = parseJsonField(puzzle.cluesJson || puzzle.clues_json || puzzle.clues, []).map(function(clue) {
+          return { row: Number(clue.row), col: Number(clue.col), value: Number(clue.value) };
+        });
+        var rows = Number(puzzle.rows || solution.length);
+        var cols = Number(puzzle.cols || ((solution[0] && solution[0].length) || 0));
+        var savedData = null;
+        try {
+          var raw = localStorage.getItem(LS_KEY);
+          savedData = raw ? JSON.parse(raw) : null;
+        } catch(e) {}
+        grid = (savedData && savedData.grid)
+          ? decodeNurikabeGrid(savedData.grid, rows, cols)
+          : makeGrid(rows, cols);
+        applyClues();
+        view = new NurikabeGrid(document.getElementById('grid'), {
+          clues: clues,
+          rows: rows,
+          cols: cols,
+          onCellChange: onCellChange
+        });
+        view.setGrid(grid);
+        document.getElementById('title').textContent = puzzle.title || ('#' + (puzzle.stageNumber || id));
+        refreshErrors();
+      } catch(e) {
+        var msg = String(e);
+        if (msg.indexOf('403') >= 0) {
+          showLocked();
+        } else if (msg.indexOf('404') >= 0) {
+          showNotPublished();
+        } else {
+          document.getElementById('message').textContent = 'Load failed: ' + e;
+        }
+      }
+    }
+
+    function makeGrid(rows, cols) {
+      var g = [];
+      for (var r = 0; r < rows; r++) {
+        var row = [];
+        for (var c = 0; c < cols; c++) row.push(NurikabeCell.UNKNOWN);
+        g.push(row);
+      }
+      return g;
+    }
+
+    function applyClues() {
+      clues.forEach(function(clue) {
+        if (grid[clue.row]) grid[clue.row][clue.col] = NurikabeCell.ISLAND;
+      });
+    }
+
+    function isClueCell(r, c) {
+      return clues.some(function(clue) { return clue.row === r && clue.col === c; });
+    }
+
+    function onCellChange(r, c, next) {
+      if (cleared || isClueCell(r, c)) return;
+      var old = grid[r][c];
+      if (old === next) return;
+      undoStack.push({ r: r, c: c, old: old });
+      if (undoStack.length > 40) undoStack.shift();
+      grid[r][c] = next;
+      view.setGrid(grid);
+      refreshErrors();
+      updateUndo();
+      saveProgress();
+      checkClear();
+    }
+
+    function undo() {
+      if (!undoStack.length || cleared) return;
+      var action = undoStack.pop();
+      grid[action.r][action.c] = action.old;
+      applyClues();
+      view.setGrid(grid);
+      refreshErrors();
+      updateUndo();
+      saveProgress();
+    }
+
+    function reset() {
+      if (!confirm('Reset?')) return;
+      grid = makeGrid(view.rows, view.cols);
+      applyClues();
+      undoStack = [];
+      view.setGrid(grid);
+      refreshErrors();
+      updateUndo();
+      saveProgress();
+    }
+
+    function hint() {
+      var cells = [];
+      solution.forEach(function(row, r) {
+        row.forEach(function(value, c) {
+          if (!isClueCell(r, c) && value === NurikabeCell.SEA && grid[r][c] !== NurikabeCell.SEA) {
+            cells.push([r, c, NurikabeCell.SEA]);
+          }
+        });
+      });
+      if (!cells.length) return;
+      var pick = cells[Math.floor(Math.random() * cells.length)];
+      var r = pick[0];
+      var c = pick[1];
+      var value = pick[2];
+      undoStack.push({ r: r, c: c, old: grid[r][c] });
+      if (undoStack.length > 40) undoStack.shift();
+      grid[r][c] = value;
+      applyClues();
+      view.setGrid(grid);
+      refreshErrors();
+      updateUndo();
+      saveProgress();
+      checkClear();
+    }
+
+    function refreshErrors() {
+      view.errorCells = findNurikabeErrors(grid, clues, view.rows, view.cols);
+      view.render();
+    }
+
+    function checkClear() {
+      if (cleared) return;
+      var rows = view.rows, cols = view.cols;
+      var tempGrid = grid.map(function(row) {
+        return row.map(function(cell) {
+          return cell === NurikabeCell.UNKNOWN ? NurikabeCell.ISLAND : cell;
+        });
+      });
+      if (!verifyNurikabe(tempGrid, clues, rows, cols)) return;
+      for (var r = 0; r < rows; r++) {
+        for (var c = 0; c < cols; c++) {
+          if (grid[r][c] === NurikabeCell.UNKNOWN) grid[r][c] = NurikabeCell.ISLAND;
+        }
+      }
+      view.setGrid(grid);
+      cleared = true;
+      saveProgress();
+      try { localStorage.removeItem(LS_KEY); } catch(e) {}
+      fetchWeb('/nurikabe/clear/' + puzzleId, { method: 'POST', body: JSON.stringify({}) });
+      document.getElementById('clearOverlay').classList.add('show');
+      setTimeout(function() {
+        location.href = '/nurikabe/list.html?rows=' + (puzzle ? puzzle.rows : 7);
+      }, 3000);
+    }
+
+    function saveProgress() {
+      if (!puzzle || cleared || !LS_KEY) return;
+      var data = { grid: encodeNurikabeGrid(grid) };
+      try { localStorage.setItem(LS_KEY, JSON.stringify(data)); } catch(e) {}
+    }
+
+    function updateUndo() {
+      document.getElementById('undo').disabled = !undoStack.length || cleared;
+    }
+
+    function parseJsonField(value, fallback) {
+      if (Array.isArray(value)) return value;
+      try { return value ? JSON.parse(value) : fallback; } catch(e) { return fallback; }
+    }
+  }).catch(function(e) {
+    document.getElementById('message').textContent = 'Error: ' + e;
+  });
+  </script>
+</body>
+</html>

@@ -1,0 +1,586 @@
+@page "/attempts/{AttemptId:guid}"
+@inject Services.InfraLabApiClient Api
+@inject NavigationManager Navigation
+@implements IDisposable
+
+<PageTitle>演習 | InfraLab</PageTitle>
+
+@if (loading)
+{
+    <p role="status">Attemptを読み込み中です…</p>
+}
+else if (notFound)
+{
+    <h1>演習が見つかりませんでした。</h1>
+    <a href="scenarios">一覧へ戻る</a>
+}
+else if (error)
+{
+    <p class="error">Attemptを取得できませんでした。</p>
+    <button @onclick="LoadAsync">再試行</button>
+}
+else if (attempt is not null)
+{
+    <h1>演習</h1>
+    <h2>@(string.IsNullOrWhiteSpace(attempt.ScenarioTitle) ? "シナリオ" : attempt.ScenarioTitle)</h2>
+
+    @if (attempt.Symptoms.Length > 0)
+    {
+        <section>
+            <h3>症状</h3>
+            <ul>
+                @foreach (var symptom in attempt.Symptoms)
+                {
+                    <li>@symptom</li>
+                }
+            </ul>
+        </section>
+    }
+
+    <section class="attempt-info">
+        <h3>Attempt情報</h3>
+        <dl>
+            <dt>Attempt ID</dt>
+            <dd class="attempt-id">@attempt.Id</dd>
+            <dt>フェーズ</dt>
+            <dd>@PhaseLabel(attempt.Phase)</dd>
+            <dt>状態</dt>
+            <dd>@StatusLabel(attempt.Status)</dd>
+            <dt>StateVersion</dt>
+            <dd>@attempt.StateVersion</dd>
+        </dl>
+    </section>
+
+    @if (attempt.Phase == 5 && attempt.Status == 1)
+    {
+        <section>
+            <h3>演習完了</h3>
+            @if (resultLoading)
+            {
+                <p role="status">結果を読み込み中…</p>
+            }
+            else if (!string.IsNullOrWhiteSpace(resultMessage))
+            {
+                <p class="error">@resultMessage</p>
+            }
+            else if (result is not null)
+            {
+                <p>@result.ScenarioTitle</p>
+                <p>総合得点: @result.Score.Total</p>
+                <ul>
+                    <li>診断: @result.Score.Diagnosis</li>
+                    <li>対処: @result.Score.Remediation</li>
+                    <li>復旧確認: @result.Score.Verification</li>
+                </ul>
+                @if (reviewLoading)
+                {
+                    <p role="status">振り返りを読み込み中…</p>
+                }
+                else if (!string.IsNullOrWhiteSpace(reviewMessage))
+                {
+                    <p class="error">@reviewMessage</p>
+                }
+                else if (review is not null)
+                {
+                    <section>
+                        <h4>振り返り</h4>
+                        @if (review.Diagnosis is not null)
+                        {
+                            <section><h5>診断</h5><p>あなたの回答: @review.Diagnosis.SelectedLabel</p><p>推奨回答: @review.Diagnosis.ExpectedLabel</p><p>結果: @(review.Diagnosis.IsCorrect ? "正解" : "不正解")</p>@if (!string.IsNullOrWhiteSpace(review.Diagnosis.Explanation)) { <p>解説: @review.Diagnosis.Explanation</p> }@if (review.Diagnosis.EarnedScore is not null) { <p>得点: @review.Diagnosis.EarnedScore</p> }</section>
+                        }
+                        @if (review.Remediation is not null)
+                        {
+                            <section><h5>対処</h5><p>あなたの回答: @review.Remediation.SelectedLabel</p><p>推奨回答: @review.Remediation.ExpectedLabel</p><p>結果: @(review.Remediation.IsCorrect ? "正解" : "不正解")</p>@if (!string.IsNullOrWhiteSpace(review.Remediation.Explanation)) { <p>解説: @review.Remediation.Explanation</p> }@if (review.Remediation.EarnedScore is not null) { <p>得点: @review.Remediation.EarnedScore</p> }</section>
+                        }
+                        @if (review.Verification is not null)
+                        {
+                            <section><h5>復旧確認</h5><p>あなたの回答:</p><ul>@foreach (var label in review.Verification.SelectedLabels) { <li>@label</li> }</ul><p>推奨回答:</p><ul>@foreach (var label in review.Verification.ExpectedLabels) { <li>@label</li> }</ul><p>結果: @(review.Verification.IsCorrect ? "正解" : "不正解")</p>@if (!string.IsNullOrWhiteSpace(review.Verification.Explanation)) { <p>解説: @review.Verification.Explanation</p> }@if (review.Verification.EarnedScore is not null) { <p>得点: @review.Verification.EarnedScore</p> }</section>
+                        }
+                    </section>
+                }
+                <button disabled="@(!CanStartRetry)" @onclick="StartRetryAsync">@(isStartingRetry ? "開始中…" : "同じ演習にもう一度挑戦")</button>
+                @if (!string.IsNullOrWhiteSpace(retryMessage))
+                {
+                    <p class="error">@retryMessage</p>
+                }
+            }
+        </section>
+    }
+
+    @if (CanSubmitCommands(attempt.Phase))
+    {
+        <section>
+            <h3>コマンド入力</h3>
+            @if (!string.IsNullOrWhiteSpace(commandMessage))
+            {
+                <p class="error">@commandMessage</p>
+            }
+            <form class="command-form" @onsubmit="SubmitCommandAsync" @onsubmit:preventDefault="true">
+                <label for="command-input">コマンド</label>
+                <input id="command-input"
+                       @bind="commandInput"
+                       @bind:event="oninput"
+                       disabled="@(IsMutating || notFound)"
+                       placeholder="コマンドを入力"
+                       type="text" />
+                <button type="submit" disabled="@(!CanSubmitCommand)">@(isSubmittingCommand ? "実行中…" : "実行")</button>
+            </form>
+        </section>
+    }
+
+    <section>
+        <h3>調査操作</h3>
+        @if (!string.IsNullOrWhiteSpace(actionMessage))
+        {
+            <p class="error">@actionMessage</p>
+        }
+        @if (attempt.AvailableActions.Length == 0)
+        {
+            <p>現在実行できる調査操作はありません。</p>
+        }
+        else
+        {
+            <div class="action-list">
+                @foreach (var action in attempt.AvailableActions)
+                {
+                    <button disabled="@(IsMutating || notFound)" @onclick="() => SubmitActionAsync(action.Id)">@(isSubmittingAction && submittingActionId == action.Id ? "実行中…" : action.Label)</button>
+                }
+            </div>
+        }
+    </section>
+
+    @if (attempt.Phase == 2)
+    {
+        <section>
+            <h3>診断</h3>
+            @if (!string.IsNullOrWhiteSpace(diagnosisMessage))
+            {
+                <p class="error">@diagnosisMessage</p>
+            }
+            @if (attempt.AvailableDiagnoses.Length == 0)
+            {
+                <p>現在選択できる診断候補はありません。</p>
+            }
+            else
+            {
+                <div class="action-list">
+                    @foreach (var diagnosis in attempt.AvailableDiagnoses)
+                    {
+                        <label>
+                            <input type="radio"
+                                   name="diagnosis"
+                                   value="@diagnosis.Id"
+                                   checked="@(selectedDiagnosisId == diagnosis.Id)"
+                                   @onchange="() => selectedDiagnosisId = diagnosis.Id"
+                                   disabled="@(IsMutating || notFound)" />
+                            @diagnosis.Label
+                        </label>
+                    }
+                </div>
+                <button disabled="@(!CanSubmitDiagnosis)" @onclick="SubmitDiagnosisAsync">@(isSubmittingDiagnosis ? "送信中…" : "診断を確定")</button>
+            }
+        </section>
+    }
+
+    @if (attempt.Phase == 3)
+    {
+        <section>
+            <h3>対処</h3>
+            @if (!string.IsNullOrWhiteSpace(remediationMessage))
+            {
+                <p class="error">@remediationMessage</p>
+            }
+            @if (attempt.AvailableRemediations.Length == 0)
+            {
+                <p>現在選択できる対処候補はありません。</p>
+            }
+            else
+            {
+                <div class="action-list">
+                    @foreach (var remediation in attempt.AvailableRemediations)
+                    {
+                        <label>
+                            <input type="radio"
+                                   name="remediation"
+                                   value="@remediation.Id"
+                                   checked="@(selectedRemediationId == remediation.Id)"
+                                   @onchange="() => selectedRemediationId = remediation.Id"
+                                   disabled="@(IsMutating || notFound)" />
+                            @remediation.Label
+                        </label>
+                    }
+                </div>
+                <button disabled="@(!CanSubmitRemediation)" @onclick="SubmitRemediationAsync">@(isSubmittingRemediation ? "実行中…" : "対処を実行")</button>
+            }
+        </section>
+    }
+
+    @if (attempt.Phase == 4)
+    {
+        <section>
+            <h3>復旧確認</h3>
+            @if (!string.IsNullOrWhiteSpace(verificationMessage))
+            {
+                <p class="error">@verificationMessage</p>
+            }
+            @if (attempt.AvailableVerifications.Length == 0)
+            {
+                <p>現在選択できる復旧確認候補はありません。</p>
+            }
+            else
+            {
+                <div class="action-list">
+                    @foreach (var verification in attempt.AvailableVerifications)
+                    {
+                        <label><input type="checkbox" value="@verification.Id" checked="@selectedVerificationIds.Contains(verification.Id)" @onchange="() => ToggleVerification(verification.Id)" disabled="@(IsMutating || notFound)" /> @verification.Label</label>
+                    }
+                </div>
+                <button disabled="@(!CanSubmitVerification)" @onclick="SubmitVerificationAsync">@(isSubmittingVerification ? "確認中…" : "復旧確認を確定")</button>
+            }
+        </section>
+    }
+
+    <section>
+        <h3>開示済みEvidence</h3>
+        @if (attempt.RevealedEvidence.Length == 0)
+        {
+            <p>まだEvidenceは開示されていません。</p>
+        }
+        else
+        {
+            @foreach (var evidence in attempt.RevealedEvidence)
+            {
+                <section class="evidence">
+                    <h4>@evidence.Title <span class="evidence-type">@EvidenceTypeLabel(evidence.Type)</span></h4>
+                    <pre aria-label="Evidence内容">@evidence.Text</pre>
+                </section>
+            }
+        }
+    </section>
+
+    <a href="scenarios">一覧へ戻る</a>
+}
+
+@code {
+    [Parameter]
+    public Guid AttemptId { get; set; }
+
+    private readonly CancellationTokenSource cts = new();
+    private Contracts.PublicAttemptView? attempt;
+    private bool loading = true;
+    private bool error;
+    private bool notFound;
+    private bool isSubmittingAction;
+    private bool isSubmittingCommand;
+    private bool isSubmittingDiagnosis;
+    private bool isSubmittingRemediation;
+    private bool isSubmittingVerification;
+    private bool isStartingRetry;
+    private string? submittingActionId;
+    private string? actionMessage;
+    private string? commandMessage;
+    private string? diagnosisMessage;
+    private string? remediationMessage;
+    private string? verificationMessage;
+    private string? retryMessage;
+    private string? selectedDiagnosisId;
+    private string? selectedRemediationId;
+    private readonly HashSet<string> selectedVerificationIds = [];
+    private Contracts.PublicAttemptResult? result;
+    private Contracts.PublicAttemptReview? review;
+    private bool resultLoading;
+    private bool reviewLoading;
+    private string? resultMessage;
+    private string? reviewMessage;
+    private string commandInput = string.Empty;
+
+    private bool IsMutating => isSubmittingAction || isSubmittingCommand || isSubmittingDiagnosis || isSubmittingRemediation || isSubmittingVerification || isStartingRetry;
+    private bool CanStartRetry => attempt is { Phase: 5, Status: 1 } && result is { ScenarioId.Length: > 0 } && !isStartingRetry;
+    private bool CanSubmitCommand => !notFound && attempt is not null && CanSubmitCommands(attempt.Phase) && !string.IsNullOrWhiteSpace(commandInput) && !IsMutating;
+    private bool CanSubmitDiagnosis => !notFound && attempt is not null && attempt.Phase == 2 && !string.IsNullOrWhiteSpace(selectedDiagnosisId) && !IsMutating;
+    private bool CanSubmitRemediation => !notFound && attempt is not null && attempt.Phase == 3 && !string.IsNullOrWhiteSpace(selectedRemediationId) && !IsMutating;
+    private bool CanSubmitVerification => !notFound && attempt is not null && attempt.Phase == 4 && selectedVerificationIds.Count > 0 && !IsMutating;
+
+    protected override async Task OnParametersSetAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        loading = true;
+        error = false;
+        notFound = false;
+        try
+        {
+            attempt = await Api.GetAttemptAsync(AttemptId, cts.Token);
+            await LoadResultAsync();
+        }
+        catch (Services.ApiNotFoundException)
+        {
+            notFound = true;
+        }
+        catch
+        {
+            error = true;
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+
+    private async Task SubmitActionAsync(string actionId)
+    {
+        if (IsMutating || notFound || attempt is null)
+        {
+            return;
+        }
+
+        isSubmittingAction = true;
+        submittingActionId = actionId;
+        ClearMutationMessages();
+        try
+        {
+            attempt = await Api.SubmitActionAsync(
+                AttemptId,
+                new Contracts.ActionRequest(actionId, null, attempt.StateVersion, Guid.NewGuid().ToString("N")),
+                cts.Token);
+        }
+        catch (Exception exception)
+        {
+            await HandleMutationFailureAsync(exception, message => actionMessage = message, "調査操作を実行できませんでした。");
+        }
+        finally
+        {
+            isSubmittingAction = false;
+            submittingActionId = null;
+        }
+    }
+
+    private async Task SubmitCommandAsync()
+    {
+        if (!CanSubmitCommand || attempt is null)
+        {
+            return;
+        }
+
+        isSubmittingCommand = true;
+        ClearMutationMessages();
+        try
+        {
+            attempt = await Api.SubmitCommandAsync(
+                AttemptId,
+                new Contracts.ActionRequest(null, commandInput, attempt.StateVersion, Guid.NewGuid().ToString("N")),
+                cts.Token);
+            commandInput = string.Empty;
+        }
+        catch (Exception exception)
+        {
+            await HandleMutationFailureAsync(exception, message => commandMessage = message, "コマンドを実行できませんでした。");
+        }
+        finally
+        {
+            isSubmittingCommand = false;
+        }
+    }
+
+    private async Task SubmitDiagnosisAsync()
+    {
+        if (!CanSubmitDiagnosis || attempt is null || selectedDiagnosisId is null)
+        {
+            return;
+        }
+
+        isSubmittingDiagnosis = true;
+        ClearMutationMessages();
+        try
+        {
+            attempt = await Api.SubmitDiagnosisAsync(
+                AttemptId,
+                new Contracts.SubmitDiagnosisRequest(selectedDiagnosisId, attempt.StateVersion, Guid.NewGuid().ToString("N")),
+                cts.Token);
+            selectedDiagnosisId = null;
+        }
+        catch (Exception exception)
+        {
+            await HandleMutationFailureAsync(exception, message => diagnosisMessage = message, "診断回答を送信できませんでした。");
+        }
+        finally
+        {
+            isSubmittingDiagnosis = false;
+        }
+    }
+
+    private async Task SubmitRemediationAsync()
+    {
+        if (!CanSubmitRemediation || attempt is null || selectedRemediationId is null)
+        {
+            return;
+        }
+
+        isSubmittingRemediation = true;
+        ClearMutationMessages();
+        try
+        {
+            attempt = await Api.SubmitRemediationAsync(
+                AttemptId,
+                new Contracts.SubmitRemediationRequest(selectedRemediationId, attempt.StateVersion, Guid.NewGuid().ToString("N")),
+                cts.Token);
+            selectedRemediationId = null;
+        }
+        catch (Exception exception)
+        {
+            await HandleMutationFailureAsync(exception, message => remediationMessage = message, "対処を実行できませんでした。");
+        }
+        finally
+        {
+            isSubmittingRemediation = false;
+        }
+    }
+
+    private async Task SubmitVerificationAsync()
+    {
+        if (!CanSubmitVerification || attempt is null) return;
+        isSubmittingVerification = true;
+        ClearMutationMessages();
+        try
+        {
+            attempt = await Api.SubmitVerificationAsync(AttemptId, new Contracts.SubmitVerificationRequest(selectedVerificationIds.ToArray(), attempt.StateVersion, Guid.NewGuid().ToString("N")), cts.Token);
+            selectedVerificationIds.Clear();
+            await LoadResultAsync();
+        }
+        catch (Exception exception)
+        {
+            await HandleMutationFailureAsync(exception, message => verificationMessage = message, "復旧確認を送信できませんでした。");
+        }
+        finally
+        {
+            isSubmittingVerification = false;
+        }
+    }
+
+    private void ToggleVerification(string id)
+    {
+        if (!selectedVerificationIds.Add(id)) selectedVerificationIds.Remove(id);
+    }
+
+    private async Task LoadResultAsync()
+    {
+        result = null;
+        resultMessage = null;
+        if (attempt is null || attempt.Phase != 5 || attempt.Status != 1) return;
+        resultLoading = true;
+        try
+        {
+            result = await Api.GetAttemptResultAsync(AttemptId, cts.Token);
+            await LoadReviewAsync();
+        }
+        catch
+        {
+            resultMessage = "結果を読み込めませんでした。";
+        }
+        finally
+        {
+            resultLoading = false;
+        }
+    }
+
+    private async Task LoadReviewAsync()
+    {
+        review = null;
+        reviewMessage = null;
+        if (result is null) return;
+        reviewLoading = true;
+        try
+        {
+            review = await Api.GetAttemptReviewAsync(AttemptId, cts.Token);
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch
+        {
+            reviewMessage = "振り返りを読み込めませんでした。";
+        }
+        finally
+        {
+            reviewLoading = false;
+        }
+    }
+
+    private async Task StartRetryAsync()
+    {
+        if (!CanStartRetry || result is null)
+        {
+            return;
+        }
+
+        isStartingRetry = true;
+        retryMessage = null;
+        try
+        {
+            var newAttempt = await Api.StartAttemptAsync(result.ScenarioId, cts.Token);
+            Navigation.NavigateTo($"/attempts/{newAttempt.Id}");
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch
+        {
+            retryMessage = "新しい演習を開始できませんでした。";
+        }
+        finally
+        {
+            isStartingRetry = false;
+        }
+    }
+
+    private void ClearMutationMessages()
+    {
+        actionMessage = null;
+        commandMessage = null;
+        diagnosisMessage = null;
+        remediationMessage = null;
+        verificationMessage = null;
+    }
+
+    private async Task HandleMutationFailureAsync(Exception exception, Action<string> setMessage, string operationMessage)
+    {
+        if (exception is OperationCanceledException)
+        {
+            return;
+        }
+
+        if (exception is Services.ApiNotFoundException)
+        {
+            notFound = true;
+            return;
+        }
+
+        if (exception is Services.ApiRequestException { StatusCode: System.Net.HttpStatusCode.Conflict })
+        {
+            try
+            {
+                attempt = await Api.GetAttemptAsync(AttemptId, cts.Token);
+                await LoadResultAsync();
+                setMessage("状態が更新されたため、最新の内容を読み込みました。もう一度操作してください。");
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            catch
+            {
+                setMessage("最新の状態を読み込めませんでした。画面を再読み込みしてください。");
+            }
+
+            return;
+        }
+
+        setMessage(operationMessage);
+    }
+
+    public void Dispose() => cts.Cancel();
+
+    private static bool CanSubmitCommands(int phase) => phase is 0 or 1;
+    private static string PhaseLabel(int value) => value switch { 0 => "観察", 1 => "調査", 2 => "診断", 3 => "対処", 4 => "復旧確認", 5 => "レビュー", _ => "不明なフェーズ" };
+    private static string StatusLabel(int value) => value switch { 0 => "進行中", 1 => "完了", 2 => "中断", _ => "不明な状態" };
+    private static string EvidenceTypeLabel(int value) => value switch { 0 => "ログ", 1 => "コマンド出力", 2 => "メトリクス", 3 => "設定", _ => "不明" };
+}

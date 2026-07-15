@@ -1,0 +1,43 @@
+{
+  "id":"linux-inode-exhaustion-001",
+  "title":"空き容量があるのに新しいファイルを作成できない",
+  "category":"lpic1",
+  "difficulty":"beginner",
+  "summary":"ブロック容量には空きがありますが、アプリケーションが一時ファイルを作成できません。",
+  "symptoms":["新しいファイルを作成できない","No space left on device が表示される","容量表示には空きがある"],
+  "version":{"id":"linux-inode-exhaustion-001-v1","number":1,
+    "actions":[
+      {"id":"app-error","label":"アプリケーションエラーを確認する","phase":1,"patterns":[{"value":"journalctl -u app.service","validationInput":"journalctl -u app.service"}],"output":"temporary file creation failed: No space left on device","revealsEvidenceIds":["file-create-error"],"cost":1,"isDangerous":false,"repeatable":true},
+      {"id":"mount-status","label":"マウント状態を確認する","phase":1,"patterns":[{"value":"mount","validationInput":"mount"}],"output":"target filesystem is mounted read-write","revealsEvidenceIds":["filesystem-mounted"],"cost":1,"isDangerous":false,"repeatable":true},
+      {"id":"directory-permissions","label":"対象ディレクトリの権限を確認する","phase":1,"patterns":[{"value":"ls -ld /var/tmp/app","validationInput":"ls -ld /var/tmp/app"}],"output":"directory permissions allow normal writes","revealsEvidenceIds":["directory-writable"],"cost":1,"isDangerous":false,"repeatable":true},
+      {"id":"block-usage","label":"ブロック使用量を確認する","phase":1,"patterns":[{"value":"df -h /var","validationInput":"df -h /var"}],"output":"filesystem has sufficient block capacity","revealsEvidenceIds":["block-capacity-available"],"cost":1,"isDangerous":false,"repeatable":true},
+      {"id":"small-file-count","label":"小さなファイルの偏りを確認する","phase":1,"patterns":[{"value":"find /var/tmp/app -type f","validationInput":"find /var/tmp/app -type f"}],"output":"temporary directory contains many small obsolete files","revealsEvidenceIds":["many-small-files"],"cost":1,"isDangerous":false,"repeatable":true},
+      {"id":"inode-usage","label":"inode使用状況を確認する","phase":1,"patterns":[{"value":"df -i /var","validationInput":"df -i /var"}],"output":"inode usage is near the filesystem limit","revealsEvidenceIds":[],"cost":1,"isDangerous":false,"repeatable":true,"commandRevealsEvidenceIds":["inode-near-limit"]}
+    ],
+    "evidence":[
+      {"id":"file-create-error","title":"作成エラー","type":0,"text":"一時ファイル作成時に空き領域不足のエラーが出ています。"},
+      {"id":"filesystem-mounted","title":"マウント状態","type":3,"text":"対象ファイルシステムは読み書き可能にマウントされています。"},
+      {"id":"directory-writable","title":"ディレクトリ権限","type":3,"text":"通常の書込みを許可する権限です。"},
+      {"id":"block-capacity-available","title":"ブロック容量","type":2,"text":"ブロック容量には十分な空きがあります。"},
+      {"id":"many-small-files","title":"ファイル数","type":1,"text":"対象ディレクトリに多数の小さな不要ファイルがあります。"},
+      {"id":"inode-near-limit","title":"inode使用量","type":2,"text":"inode使用量が上限付近です。"}
+    ],
+    "diagnoses":[
+      {"id":"inode-exhaustion","text":"ファイルシステムのinodeが枯渇している"},
+      {"id":"block-capacity-exhaustion","text":"ブロック容量が不足している"},
+      {"id":"directory-permission-denied","text":"対象ディレクトリの権限が不足している"}
+    ],
+    "remediations":[
+      {"id":"cleanup-small-files","text":"不要な大量の小ファイルを安全に整理してinodeを解放する"},
+      {"id":"expand-block-capacity","text":"ボリューム容量だけを拡張する"},
+      {"id":"relax-directory-permissions","text":"対象ディレクトリを過度に緩い権限へ変更する","isDangerous":true}
+    ],
+    "verifications":[
+      {"id":"inode-available","text":"inodeに空きが戻ったことを確認する"},
+      {"id":"file-create-succeeds","text":"対象ディレクトリで新規ファイルを作成できることを確認する"},
+      {"id":"application-succeeds","text":"元のアプリケーション処理が成功することを確認する"},
+      {"id":"block-usage-only","text":"ブロック使用量だけを再確認する"}
+    ],
+    "private":{"correctDiagnosisId":"inode-exhaustion","correctRemediationId":"cleanup-small-files","requiredVerificationIds":["inode-available","file-create-succeeds","application-succeeds"],"requiredEvidenceIds":["file-create-error","block-capacity-available","many-small-files","inode-near-limit"],"exemplaryPath":["app-error","block-usage","small-file-count","inode-usage"],"explanation":"ブロック容量ではなくinodeの枯渇により新規ファイルを作成できません。"}
+  }
+}

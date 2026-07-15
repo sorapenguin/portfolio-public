@@ -1,0 +1,250 @@
+﻿<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>カックロ | ソラペンパズル</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <style>
+    .numpad { display:flex; flex-wrap:wrap; gap:8px; justify-content:center; margin:14px auto; max-width:320px; }
+    .num-btn { width:52px; height:52px; font-size:22px; font-weight:700; border:2px solid #ccc; border-radius:8px; background:#fff; cursor:pointer; color:#333; }
+    .num-btn.used { color:#bbb; border-color:#ddd; background:#f0f0f0; text-decoration:line-through; }
+    .num-btn.impossible { color:#ddd; border-color:#eee; background:#fafafa; }
+    .num-btn.clear-btn { font-size:18px; background:#f5f5f5; }
+    .num-btn:disabled { color:#ccc; border-color:#e8e8e8; background:#fafafa; cursor:default; }
+    .overlay-actions { display:flex; gap:12px; justify-content:center; margin-top:16px; }
+  </style>
+</head>
+<body>
+  <header class="site-header">
+    <div class="site-header-inner">
+      <a class="brand" href="/">ソラペンパズル</a>
+      <nav class="nav">
+        <a href="/nonogram/list.html">ノノグラム</a>
+        <a href="/nurikabe/list.html">ヌリカベ</a>
+        <a href="/kakuro/list.html">カックロ</a>
+        <a href="/pixelart/list.html">ピクセルアート</a>
+      </nav>
+    </div>
+  </header>
+  <main class="container">
+    <div class="toolbar">
+      <button class="secondary" id="back" type="button">← 戻る</button>
+      <strong id="puzzleTitle">カックロ</strong>
+    </div>
+    <div class="canvas-wrap"><canvas id="grid"></canvas></div>
+    <div class="numpad" id="numpad">
+      <button class="num-btn" type="button" data-num="1">1</button>
+      <button class="num-btn" type="button" data-num="2">2</button>
+      <button class="num-btn" type="button" data-num="3">3</button>
+      <button class="num-btn" type="button" data-num="4">4</button>
+      <button class="num-btn" type="button" data-num="5">5</button>
+      <button class="num-btn" type="button" data-num="6">6</button>
+      <button class="num-btn" type="button" data-num="7">7</button>
+      <button class="num-btn" type="button" data-num="8">8</button>
+      <button class="num-btn" type="button" data-num="9">9</button>
+      <button class="num-btn clear-btn" type="button" data-num="0">×</button>
+    </div>
+    <div class="controls">
+      <button class="secondary" id="undo" type="button" disabled>↩ Undo</button>
+      <button class="secondary" id="reset" type="button">リセット</button>
+      <button class="secondary" id="hint" type="button">? ヒント</button>
+    </div>
+    <p class="muted">マスをタップして数字を入力</p>
+    <p class="error" id="message"></p>
+  </main>
+  <div class="overlay" id="clearOverlay">
+    <div class="overlay-box">
+      <div>パズルクリア！</div>
+      <div class="overlay-actions">
+        <button class="secondary" id="overlayList" type="button">一覧へ</button>
+        <button class="primary" id="overlayNext" type="button">次の問題 →</button>
+      </div>
+    </div>
+  </div>
+  <script>
+  var params = new URLSearchParams(location.search);
+  var size = params.get('size') || '6x6';
+  var stage = Number(params.get('stage') || 1);
+  var SIZES = ['6x6', '9x9', '12x12'];
+  if (SIZES.indexOf(size) < 0) { size = '6x6'; }
+  if (!stage || stage < 1) { stage = 1; }
+
+  var listUrl = '/kakuro/list.html?size=' + size;
+  document.getElementById('back').addEventListener('click', function() { location.href = listUrl; });
+  document.getElementById('overlayList').addEventListener('click', function() { location.href = listUrl; });
+  document.getElementById('overlayNext').addEventListener('click', function() {
+    location.href = '/kakuro/puzzle.html?size=' + size + '&stage=' + (stage + 1);
+  });
+
+  Promise.all([
+    import('../js/auth.js'),
+    import('../js/api.js'),
+    import('../js/kakuro-grid.js'),
+    import('../js/kakuro-logic.js')
+  ]).then(function(mods) {
+    var requireAuth       = mods[0].requireAuth;
+    var applyHeaderUser   = mods[0].applyHeaderUser;
+    var fetchJson         = mods[1].fetchJson;
+    var fetchWeb          = mods[1].fetchWeb;
+    var KakuroGrid        = mods[2].KakuroGrid;
+    var buildAnswerGrid   = mods[3].buildAnswerGrid;
+    var getUsedDigits     = mods[3].getUsedDigits;
+    var getImpossibleDigits = mods[3].getImpossibleDigits;
+    var findErrors        = mods[3].findErrors;
+    var verifyKakuro      = mods[3].verifyKakuro;
+
+    if (!requireAuth()) return;
+    applyHeaderUser();
+
+    fetchJson('/kakuro/puzzle?size=' + size + '&stage=' + stage).then(function(puzzle) {
+      if (!puzzle) {
+        document.getElementById('message').textContent = 'Stage ' + stage + ' not found.';
+        return;
+      }
+
+      var cells = puzzle.cells;
+      var rows = puzzle.rows;
+      var cols = puzzle.cols;
+
+      document.getElementById('puzzleTitle').textContent = '#' + stage + ' ' + size;
+      document.title = '#' + stage + ' ' + size + ' - カックロ | ソラペンパズル';
+
+      var answers = buildAnswerGrid(rows, cols);
+      var undoStack = [];
+      var sel = null;
+      var cleared = false;
+
+      var view = new KakuroGrid(document.getElementById('grid'), {
+        cells: cells, rows: rows, cols: cols,
+        onCellTap: onCellTap
+      });
+
+      document.getElementById('undo').addEventListener('click', undo);
+      document.getElementById('reset').addEventListener('click', reset);
+      document.getElementById('hint').addEventListener('click', hint);
+
+      var numBtns = document.querySelectorAll('.num-btn');
+      numBtns.forEach(function(btn) {
+        btn.addEventListener('click', function() {
+          if (!sel || cleared) return;
+          fillCell(sel[0], sel[1], Number(btn.getAttribute('data-num')));
+        });
+      });
+
+      document.addEventListener('keydown', function(e) {
+        if (!sel || cleared) return;
+        if (e.key >= '1' && e.key <= '9') {
+          fillCell(sel[0], sel[1], Number(e.key));
+        } else if (e.key === 'Backspace' || e.key === 'Delete') {
+          fillCell(sel[0], sel[1], 0);
+        }
+      });
+
+      function onCellTap(r, c) {
+        if (cleared) return;
+        var cell = cells[r * cols + c];
+        if (!cell || cell.t !== 'a') { deselect(); return; }
+        if (sel && sel[0] === r && sel[1] === c) { deselect(); return; }
+        sel = [r, c];
+        view.setSelected(sel);
+        refreshNumpad();
+      }
+
+      function deselect() {
+        sel = null;
+        view.setSelected(null);
+        refreshNumpad();
+      }
+
+      function fillCell(r, c, num) {
+        var old = answers[r][c];
+        if (old === num) return;
+        undoStack.push({ r: r, c: c, old: old });
+        if (undoStack.length > 60) undoStack.shift();
+        answers[r][c] = num;
+        view.setAnswers(answers);
+        view.setErrors(findErrors(cells, rows, cols, answers));
+        refreshNumpad();
+        updateUndo();
+        checkClear();
+      }
+
+      function undo() {
+        if (!undoStack.length || cleared) return;
+        var act = undoStack.pop();
+        answers[act.r][act.c] = act.old;
+        view.setAnswers(answers);
+        view.setErrors(findErrors(cells, rows, cols, answers));
+        refreshNumpad();
+        updateUndo();
+      }
+
+      function reset() {
+        if (!confirm('Reset?')) return;
+        answers = buildAnswerGrid(rows, cols);
+        undoStack = [];
+        deselect();
+        view.setAnswers(answers);
+        view.setErrors(new Set());
+        updateUndo();
+      }
+
+      function hint() {
+        if (cleared) return;
+        var empty = [];
+        for (var r = 0; r < rows; r++) {
+          for (var c = 0; c < cols; c++) {
+            var cell = cells[r * cols + c];
+            if (cell && cell.t === 'a' && !answers[r][c]) {
+              empty.push([r, c]);
+            }
+          }
+        }
+        if (!empty.length) return;
+        var pick = empty[Math.floor(Math.random() * empty.length)];
+        var ans = puzzle.solution[pick[0] * cols + pick[1]];
+        if (ans) fillCell(pick[0], pick[1], ans);
+      }
+
+      function refreshNumpad() {
+        var used = sel ? getUsedDigits(cells, rows, cols, sel[0], sel[1], answers) : null;
+        var imp = sel ? getImpossibleDigits(cells, rows, cols, sel[0], sel[1], answers) : null;
+        numBtns.forEach(function(btn) {
+          var n = Number(btn.getAttribute('data-num'));
+          btn.disabled = !sel;
+          if (n === 0) return;
+          var isUsed = used ? used.has(n) : false;
+          var isImp = imp ? imp.has(n) : false;
+          btn.classList.toggle('used', isUsed);
+          btn.classList.toggle('impossible', !isUsed && isImp);
+        });
+      }
+
+      function updateUndo() {
+        document.getElementById('undo').disabled = !undoStack.length || cleared;
+      }
+
+      function checkClear() {
+        if (cleared || !verifyKakuro(cells, rows, cols, answers)) return;
+        cleared = true;
+        localStorage.setItem('kakuro_done_' + size + '_' + stage, '1');
+        deselect();
+        fetchWeb('/kakuro/progress', {
+          method: 'POST',
+          body: JSON.stringify({ puzzleId: puzzle.id, cleared: true })
+        });
+        document.getElementById('overlayNext').style.display = stage >= 9999 ? 'none' : '';
+        document.getElementById('clearOverlay').classList.add('show');
+      }
+
+      refreshNumpad();
+    }).catch(function(e) {
+      document.getElementById('message').textContent = 'Error: ' + e;
+    });
+  }).catch(function(e) {
+    document.getElementById('message').textContent = 'Error: ' + e;
+  });
+  </script>
+</body>
+</html>

@@ -1,0 +1,218 @@
+﻿<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ピクセルアート | ソラペンパズル</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="site-header-inner">
+      <a class="brand" href="/">ソラペンパズル</a>
+      <nav class="nav">
+        <a href="/nonogram/list.html">ノノグラム</a>
+        <a href="/nurikabe/list.html">ヌリカベ</a>
+        <a href="/kakuro/list.html">カックロ</a>
+        <a href="/pixelart/list.html">ピクセルアート</a>
+        <button class="secondary" type="button" data-logout>ログアウト</button>
+      </nav>
+    </div>
+  </header>
+  <main class="container" style="padding-bottom:8px">
+    <div class="toolbar">
+      <button class="secondary" id="back" type="button">← 一覧</button>
+      <strong id="title">Loading...</strong>
+    </div>
+    <div class="canvas-wrap"><canvas id="grid"></canvas></div>
+    <div class="palette-bar" id="palette"></div>
+    <div class="controls">
+      <button class="secondary" id="undo" type="button" disabled>↩ Undo</button>
+      <button class="secondary" id="reset" type="button">Reset</button>
+    </div>
+    <p class="error" id="message"></p>
+  </main>
+  <div class="overlay" id="clearOverlay">
+    <div class="overlay-box" style="text-align:center">
+      <div style="font-size:36px;font-weight:bold;margin-bottom:8px">クリア！</div>
+      <button id="backBtn" type="button">一覧に戻る</button>
+    </div>
+  </div>
+  <script>
+  Promise.all([
+    import('../js/auth.js'),
+    import('../js/api.js'),
+    import('../js/pixelart-grid.js'),
+    import('../js/pixelart-logic.js')
+  ]).then(function(mods) {
+    var requireAuth    = mods[0].requireAuth;
+    var applyHeaderUser = mods[0].applyHeaderUser;
+    var fetchJson      = mods[1].fetchJson;
+    var fetchWeb       = mods[1].fetchWeb;
+    var PixelArtGrid   = mods[2].PixelArtGrid;
+    var PALETTE         = mods[3].PALETTE;
+    var DEMO_PUZZLE     = mods[3].DEMO_PUZZLE;
+    var getUsedIndices  = mods[3].getUsedIndices;
+    var buildDisplayMap = mods[3].buildDisplayMap;
+    var makePainted     = mods[3].makePainted;
+    var checkClear      = mods[3].checkClear;
+    var encodePainted   = mods[3].encodePainted;
+    var decodePainted   = mods[3].decodePainted;
+    var hexLuminance    = mods[3].hexLuminance;
+
+    var params   = new URLSearchParams(location.search);
+    var puzzleId = Number(params.get('id') || 0);
+    var isDemo   = params.get('demo') === '1';
+
+    if (!requireAuth()) return;
+    applyHeaderUser();
+
+    document.getElementById('back').addEventListener('click', function() {
+      location.href = '/pixelart/list.html';
+    });
+    document.getElementById('backBtn').addEventListener('click', function() {
+      location.href = '/pixelart/list.html';
+    });
+    document.getElementById('undo').addEventListener('click', undo);
+    document.getElementById('reset').addEventListener('click', reset);
+
+    var puzzle      = null;
+    var grid        = null;
+    var painted     = [];
+    var selectedIdx = -1;
+    var displayMap  = {};
+    var undoStack   = [];
+    var cleared     = false;
+    var LS_KEY      = '';
+
+    if (isDemo) {
+      initPuzzle(DEMO_PUZZLE);
+    } else if (puzzleId > 0) {
+      fetchJson('/pixelart/puzzles/' + puzzleId).then(function(data) {
+        initPuzzle(data);
+      }).catch(function(e) {
+        document.getElementById('message').textContent = 'Load failed: ' + e;
+      });
+    } else {
+      document.getElementById('message').textContent = 'No puzzle specified.';
+    }
+
+    function initPuzzle(data) {
+      puzzle = data;
+      var rows    = data.height || data.size || data.pixels.length;
+      var cols    = data.width  || data.size || (data.pixels[0] && data.pixels[0].length) || 8;
+      var palette = (data.palette && data.palette.length) ? data.palette : PALETTE;
+
+      LS_KEY = 'pixelart_' + (data.id !== undefined ? data.id : 'demo');
+
+      var rawSaved = null;
+      try {
+        rawSaved = localStorage.getItem(LS_KEY);
+      } catch(e) {
+        console.warn('localStorage unavailable');
+      }
+      painted = rawSaved ? decodePainted(rawSaved, rows, cols) : makePainted(rows, cols);
+
+      document.getElementById('title').textContent = data.title || ('Puzzle #' + data.id);
+
+      var usedIdx = getUsedIndices(data.pixels);
+      displayMap  = buildDisplayMap(usedIdx);
+      selectedIdx = usedIdx.length ? usedIdx[0] : 1;
+      buildPalette(usedIdx, palette);
+
+      grid = new PixelArtGrid(document.getElementById('grid'), {
+        pixels:     data.pixels,
+        palette:    palette,
+        displayMap: displayMap,
+        onPaint: function(r, c) {
+          if (cleared || selectedIdx < 0) return;
+          if (data.pixels[r][c] !== selectedIdx) return;
+          var prev = painted[r][c];
+          if (prev === selectedIdx) return;
+          undoStack.push({ r: r, c: c, prev: prev });
+          if (undoStack.length > 100) undoStack.shift();
+          painted[r][c] = selectedIdx;
+          grid.setPainted(painted);
+          updateUndoBtn();
+          saveProgress();
+          if (checkClear(data.pixels, painted)) onClear();
+        }
+      });
+      grid.setPainted(painted);
+      updateUndoBtn();
+    }
+
+    function buildPalette(indices, palette) {
+      var bar = document.getElementById('palette');
+      bar.innerHTML = '';
+      indices.forEach(function(idx) {
+        var hex = palette[idx] || '#888888';
+        var sw = document.createElement('div');
+        sw.className = 'px-swatch' + (idx === selectedIdx ? ' active' : '');
+        sw.style.background = hex;
+        sw.style.color = hexLuminance(hex) > 0.4 ? '#000000' : '#ffffff';
+        sw.dataset.idx = String(idx);
+        sw.textContent = String(displayMap[idx] !== undefined ? displayMap[idx] : idx);
+        sw.addEventListener('click', function() {
+          selectedIdx = idx;
+          var all = bar.querySelectorAll('.px-swatch');
+          for (var i = 0; i < all.length; i++) all[i].classList.remove('active');
+          sw.classList.add('active');
+        });
+        bar.appendChild(sw);
+      });
+    }
+
+    function undo() {
+      if (!undoStack.length || cleared) return;
+      var act = undoStack.pop();
+      painted[act.r][act.c] = act.prev;
+      grid.setPainted(painted);
+      updateUndoBtn();
+      saveProgress();
+    }
+
+    function reset() {
+      if (!puzzle || cleared) return;
+      if (!confirm('Reset?')) return;
+      var rows = puzzle.height || puzzle.size || puzzle.pixels.length;
+      var cols = puzzle.width  || puzzle.size || (puzzle.pixels[0] && puzzle.pixels[0].length) || 8;
+      painted = makePainted(rows, cols);
+      undoStack = [];
+      grid.setPainted(painted);
+      updateUndoBtn();
+      saveProgress();
+    }
+
+    function onClear() {
+      cleared = true;
+      if (LS_KEY) {
+        try { localStorage.removeItem(LS_KEY); } catch(e) { console.warn('ls remove failed'); }
+      }
+      if (!isDemo && puzzleId > 0) {
+        try { localStorage.setItem('pixelart_done_' + puzzleId, '1'); } catch(e) { console.warn('ls done failed'); }
+        fetchWeb('/pixelart/progress', {
+          method: 'POST',
+          body: JSON.stringify({ puzzleId: puzzleId, cleared: true })
+        });
+      }
+      document.getElementById('clearOverlay').classList.add('show');
+      setTimeout(function() { location.href = '/pixelart/list.html'; }, 2000);
+    }
+
+    function saveProgress() {
+      if (!puzzle || cleared || !LS_KEY) return;
+      try {
+        localStorage.setItem(LS_KEY, encodePainted(painted));
+      } catch(e) { console.warn('ls save failed'); }
+    }
+
+    function updateUndoBtn() {
+      document.getElementById('undo').disabled = !undoStack.length || cleared;
+    }
+  }).catch(function(e) {
+    document.getElementById('message').textContent = 'Error: ' + e;
+  });
+  </script>
+</body>
+</html>

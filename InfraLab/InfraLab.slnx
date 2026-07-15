@@ -1,0 +1,18 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/InfraLab.Application/InfraLab.Application.csproj" />
+    <Project Path="src/InfraLab.Client/InfraLab.Client.csproj" />
+    <Project Path="src/InfraLab.ContentValidator/InfraLab.ContentValidator.csproj" />
+    <Project Path="src/InfraLab.Contracts/InfraLab.Contracts.csproj" />
+    <Project Path="src/InfraLab.Domain/InfraLab.Domain.csproj" />
+    <Project Path="src/InfraLab.Infrastructure/InfraLab.Infrastructure.csproj" />
+    <Project Path="src/InfraLab.Server/InfraLab.Server.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/InfraLab.Api.Tests/InfraLab.Api.Tests.csproj" />
+    <Project Path="tests/InfraLab.Application.Tests/InfraLab.Application.Tests.csproj" />
+    <Project Path="tests/InfraLab.Content.Tests/InfraLab.Content.Tests.csproj" />
+    <Project Path="tests/InfraLab.Domain.Tests/InfraLab.Domain.Tests.csproj" />
+    <Project Path="tests/InfraLab.EndToEnd.Tests/InfraLab.EndToEnd.Tests.csproj" />
+  </Folder>
+</Solution>

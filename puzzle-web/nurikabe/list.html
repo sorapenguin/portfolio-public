@@ -1,0 +1,121 @@
+﻿<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ヌリカベ | ソラペンパズル</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="site-header-inner">
+      <a class="brand" href="/">ソラペンパズル</a>
+      <nav class="nav">
+        <a href="/nonogram/list.html">ノノグラム</a>
+        <a href="/nurikabe/list.html">ヌリカベ</a>
+        <a href="/kakuro/list.html">カックロ</a>
+        <a href="/pixelart/list.html">ピクセルアート</a>
+        <button class="secondary" type="button" id="showUser">ユーザー名を表示</button>
+        <span data-username style="display:none"></span>
+        <button class="secondary" type="button" data-logout>ログアウト</button>
+      </nav>
+    </div>
+  </header>
+  <main class="container">
+    <div class="ad-slot ad-top" data-ad="top">
+      <!--
+      <ins class="adsbygoogle"
+           style="display:block"
+           data-ad-client="ca-pub-XXXXXXXXXXXXXXXXX"
+           data-ad-slot="0000000000"
+           data-ad-format="auto"
+           data-ad-full-width-responsive="true"></ins>
+      <script>(adsbygoogle = window.adsbygoogle || []).push({});</script>
+      -->
+    </div>
+    <div class="tabs" id="tabs"></div>
+    <section class="panel">
+      <strong id="progressText">読み込み中</strong>
+      <div class="progress"><div class="progress-bar" id="progressBar"></div></div>
+    </section>
+    <div class="puzzle-list" id="list"></div>
+    <div class="ad-slot ad-bottom" data-ad="bottom">
+      <!--
+      <ins class="adsbygoogle"
+           style="display:block"
+           data-ad-client="ca-pub-XXXXXXXXXXXXXXXXX"
+           data-ad-slot="0000000001"
+           data-ad-format="auto"
+           data-ad-full-width-responsive="true"></ins>
+      <script>(adsbygoogle = window.adsbygoogle || []).push({});</script>
+      -->
+    </div>
+  </main>
+  <script>
+  Promise.all([
+    import('../js/auth.js'),
+    import('../js/api.js')
+  ]).then(function(mods) {
+    var requireAuth = mods[0].requireAuth;
+    var applyHeaderUser = mods[0].applyHeaderUser;
+    var fetchJson = mods[1].fetchJson;
+
+    if (requireAuth()) {
+      applyHeaderUser();
+      document.getElementById('showUser').addEventListener('click', function() {
+        var el = document.querySelector('[data-username]');
+        if (el) el.style.display = '';
+        document.getElementById('showUser').style.display = 'none';
+      });
+      var rows = Number(new URLSearchParams(location.search).get('rows') || 5);
+      renderTabs(rows);
+      loadList(rows);
+    }
+
+    function renderTabs(rows) {
+      [5, 7, 10].forEach(function(size) {
+        var a = document.createElement('a');
+        a.className = 'button tab' + (size === rows ? ' active' : '');
+        a.href = '?rows=' + size;
+        a.textContent = size + 'x' + size;
+        document.getElementById('tabs').appendChild(a);
+      });
+    }
+
+    async function loadList(rows) {
+      var list = document.getElementById('list');
+      try {
+        var data = await fetchJson('/nurikabe/list?rows=' + rows);
+        var puzzles = ((data && data.puzzles) || (data && data.items) || data || []).slice(0, 5);
+        var clearedCount = Number((data && data.clearedCount) || 0);
+        var unlockedMax = Number((data && data.unlockedMax) || puzzles.length || 1);
+        document.getElementById('progressText').textContent = '\u30af\u30ea\u30a2\u6e08\u307f: ' + clearedCount + '\u554f / \u89e3\u653e\u6e08\u307f: ' + unlockedMax + '\u554f';
+        document.getElementById('progressBar').style.width = Math.min(100, Math.round((clearedCount / unlockedMax) * 100)) + '%';
+        list.innerHTML = puzzles.map(function(p, index) { return cardHtml(p, rows, index); }).join('') || '<p class="muted">\u30d1\u30ba\u30eb\u304c\u3042\u308a\u307e\u305b\u3093\u3002</p>';
+      } catch(e) {
+        console.error(e);
+        list.innerHTML = '<p class="error">\u4e00\u89a7\u3092\u8aad\u307f\u8fbc\u3081\u307e\u305b\u3093\u3067\u3057\u305f\u3002</p>';
+      }
+    }
+
+    function cardHtml(p, rows, index) {
+      var title = p.title || ('Puzzle ' + (p.stageNumber || (index + 1)));
+      var stage = p.stageNumber || (index + 1);
+      var cols = p.cols || rows;
+      var badge = '\u672a\u6311\u6226';
+      return '<a class="puzzle-card" href="/nurikabe/puzzle.html?rows=' + rows + '&stage=' + stage + '">' +
+        '<strong>#' + stage + ' ' + escapeHtml(title) + '</strong>' +
+        '<div class="muted">' + rows + 'x' + cols + ' <span class="badge">' + badge + '</span></div>' +
+      '</a>';
+    }
+
+    function escapeHtml(value) {
+      var chars = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+      return String(value).replace(/[&<>"']/g, function(ch) { return chars[ch]; });
+    }
+  }).catch(function(e) {
+    document.getElementById('list').innerHTML = '<p class="error">Error: ' + e + '</p>';
+  });
+  </script>
+</body>
+</html>

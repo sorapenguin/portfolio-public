@@ -1,0 +1,352 @@
+﻿<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ノノグラム | ソラペンパズル</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="site-header-inner">
+      <a class="brand" href="/">ソラペンパズル</a>
+      <nav class="nav">
+        <a href="/nonogram/list.html">ノノグラム</a>
+        <a href="/nurikabe/list.html">ヌリカベ</a>
+        <a href="/kakuro/list.html">カックロ</a>
+        <a href="/pixelart/list.html">ピクセルアート</a>
+        <button class="secondary" type="button" id="showUser">ユーザー名を表示</button>
+        <span data-username style="display:none"></span>
+        <button class="secondary" type="button" data-logout>ログアウト</button>
+      </nav>
+    </div>
+  </header>
+  <main class="container">
+    <div class="toolbar">
+      <button class="secondary" id="back" type="button">← 一覧に戻る</button>
+      <strong id="title">読み込み中</strong>
+    </div>
+    <div class="canvas-wrap"><canvas id="grid"></canvas></div>
+    <div class="controls">
+      <button class="mode active" id="fill" type="button">■ 塗り</button>
+      <button class="mode secondary" id="mark" type="button">× マーク</button>
+      <button class="secondary" id="undo" type="button" disabled>↩ Undo</button>
+      <button class="secondary" id="reset" type="button">リセット</button>
+      <button class="secondary" id="hint" type="button">? ヒント</button>
+    </div>
+    <p class="error" id="message"></p>
+    <div id="notPublished" style="display:none;margin-top:16px;text-align:center">
+      <p>このパズルは公開されていないか、存在しません。</p>
+      <p style="margin-top:10px">
+        <a href="/nonogram/list.html">一覧に戻る</a>
+        &nbsp;/&nbsp;
+        <a href="/">トップへ</a>
+      </p>
+    </div>
+  </main>
+  <div class="overlay" id="clearOverlay"><div class="overlay-box">Clear!</div></div>
+  <script>
+  Promise.all([
+    import('../js/auth.js'),
+    import('../js/api.js'),
+    import('../js/nonogram-grid.js'),
+    import('../js/nonogram-logic.js')
+  ]).then(function(mods) {
+    var requireAuth      = mods[0].requireAuth;
+    var applyHeaderUser  = mods[0].applyHeaderUser;
+    var fetchJson        = mods[1].fetchJson;
+    var fetchWeb         = mods[1].fetchWeb;
+    var NonogramGrid     = mods[2].NonogramGrid;
+    var CellState        = mods[3].CellState;
+    var autoMarkConfirmed = mods[3].autoMarkConfirmed;
+    var decodeGrid       = mods[3].decodeGrid;
+    var encodeGrid       = mods[3].encodeGrid;
+    var solutionHash     = mods[3].solutionHash;
+    var verifySolution   = mods[3].verifySolution;
+
+    var params = new URLSearchParams(location.search);
+    var urlRows = Number(params.get('rows') || 0);
+    var urlStage = Number(params.get('stage') || 0);
+    var legacyId = params.get('id');
+    var puzzle = null;
+    var puzzleId = 0;
+    var solution = [];
+    var grid = [];
+    var view = null;
+    var undoStack = [];
+    var pendingUndo = null;
+    var saveTimer = null;
+    var cleared = false;
+    var hintedCells = new Set();
+    var suppressedAutoMarks = new Set();
+
+    if (!requireAuth()) return;
+    applyHeaderUser();
+    document.getElementById('showUser').addEventListener('click', function() {
+      var el = document.querySelector('[data-username]');
+      if (el) el.style.display = '';
+      document.getElementById('showUser').style.display = 'none';
+    });
+    document.getElementById('back').addEventListener('click', saveAndLeave);
+    document.getElementById('fill').addEventListener('click', function() { setMode(true); });
+    document.getElementById('mark').addEventListener('click', function() { setMode(false); });
+    document.getElementById('undo').addEventListener('click', undo);
+    document.getElementById('reset').addEventListener('click', reset);
+    document.getElementById('hint').addEventListener('click', hint);
+    window.addEventListener('beforeunload', function() { saveProgress(); });
+    load();
+
+    function showNotPublished() {
+      document.getElementById('notPublished').style.display = '';
+      document.getElementById('message').style.display = 'none';
+      document.getElementById('title').textContent = '---';
+    }
+
+    function showLocked() {
+      document.getElementById('message').textContent = 'このステージはまだ解放されていません。';
+    }
+
+    async function load() {
+      var apiPath;
+      if (urlRows > 0 && urlStage > 0) {
+        apiPath = '/nonogram/puzzle?rows=' + urlRows + '&stage=' + urlStage;
+      } else if (legacyId) {
+        var n = parseInt(legacyId, 10);
+        if (!n || n <= 0) { showNotPublished(); return; }
+        apiPath = '/nonogram/puzzles/' + n;
+      } else {
+        showNotPublished(); return;
+      }
+      try {
+        puzzle = await fetchJson(apiPath);
+        puzzleId = puzzle.id;
+        var progressResp = await fetchJson('/nonogram/progress/' + puzzleId).catch(function() { return null; });
+        var progress = (progressResp && progressResp.progress) ? progressResp.progress : null;
+        solution = parseJsonField(puzzle.solutionJson || puzzle.solution_json || puzzle.solution, []);
+        var rowHints = parseJsonField(puzzle.rowHintsJson || puzzle.row_hints_json || puzzle.rowHints || puzzle.row_hints, []);
+        var colHints = parseJsonField(puzzle.colHintsJson || puzzle.col_hints_json || puzzle.colHints || puzzle.col_hints, []);
+        var rows = Number(puzzle.rows || solution.length);
+        var cols = Number(puzzle.cols || (solution[0] ? solution[0].length : 0));
+        var currentHash = solutionHash(solution);
+        var savedHash = progress ? progress.solutionHash : null;
+        var savedGrid = progress ? progress.progressJson : null;
+        grid = (savedGrid && savedHash === currentHash)
+          ? decodeGrid(savedGrid, rows, cols)
+          : makeGrid(rows, cols);
+        if (progress && progress.hintCells) decodeCells(progress.hintCells).forEach(function(c) { hintedCells.add(c); });
+        if (progress && progress.suppressedMarks) decodeCells(progress.suppressedMarks).forEach(function(c) { suppressedAutoMarks.add(c); });
+        view = new NonogramGrid(document.getElementById('grid'), {
+          rowHints: rowHints,
+          colHints: colHints,
+          onGestureStart: function() { pendingUndo = new Map(); },
+          onGestureEnd: commitUndo,
+          onCellChange: onCellChange
+        });
+        view.hintedCells = hintedCells;
+        applyAutoMark();
+        view.setGrid(grid);
+        document.getElementById('title').textContent = puzzle.title || ('#' + (puzzle.stageNumber || id));
+        if (progress && progress.isFillMode === false) setMode(false);
+        refreshHighlights();
+      } catch(e) {
+        var msg = String(e);
+        if (msg.indexOf('403') >= 0) {
+          showLocked();
+        } else if (msg.indexOf('404') >= 0) {
+          showNotPublished();
+        } else {
+          document.getElementById('message').textContent = 'Load failed: ' + e;
+        }
+      }
+    }
+
+    function makeGrid(rows, cols) {
+      var g = [];
+      for (var r = 0; r < rows; r++) {
+        var row = [];
+        for (var c = 0; c < cols; c++) row.push(CellState.EMPTY);
+        g.push(row);
+      }
+      return g;
+    }
+
+    function onCellChange(r, c, next) {
+      if (cleared || hintedCells.has(r + ',' + c)) return;
+      var old = grid[r][c];
+      if (old === next) return;
+      if (pendingUndo) pendingUndo.set(r + ',' + c, old === CellState.AUTO_MARKED ? CellState.EMPTY : old);
+      if (old === CellState.AUTO_MARKED && next === CellState.EMPTY) suppressedAutoMarks.add(r + ',' + c);
+      if (next !== CellState.EMPTY) suppressedAutoMarks.delete(r + ',' + c);
+      grid[r][c] = next;
+      applyAutoMark();
+      view.setGrid(grid);
+      refreshHighlights();
+      scheduleSave();
+      checkClear();
+    }
+
+    function commitUndo() {
+      if (pendingUndo && pendingUndo.size) {
+        undoStack.push(new Map(pendingUndo));
+        if (undoStack.length > 40) undoStack.shift();
+      }
+      pendingUndo = null;
+      updateUndo();
+    }
+
+    function undo() {
+      if (!undoStack.length || cleared) return;
+      var action = undoStack.pop();
+      action.forEach(function(state, key) {
+        var parts = key.split(',');
+        grid[Number(parts[0])][Number(parts[1])] = state;
+      });
+      applyAutoMark();
+      view.setGrid(grid);
+      refreshHighlights();
+      scheduleSave();
+      updateUndo();
+    }
+
+    function reset() {
+      if (!confirm('Reset?')) return;
+      for (var r = 0; r < grid.length; r++) {
+        for (var c = 0; c < grid[r].length; c++) {
+          grid[r][c] = hintedCells.has(r + ',' + c) ? CellState.FILLED : CellState.EMPTY;
+        }
+      }
+      suppressedAutoMarks.clear();
+      undoStack = [];
+      applyAutoMark();
+      view.setGrid(grid);
+      refreshHighlights();
+      scheduleSave();
+      updateUndo();
+    }
+
+    function hint() {
+      var cells = [];
+      for (var r = 0; r < solution.length; r++) {
+        for (var c = 0; c < solution[r].length; c++) {
+          if (solution[r][c] === 1 && grid[r][c] !== CellState.FILLED) cells.push([r, c]);
+        }
+      }
+      if (!cells.length) return;
+      var pick = cells[Math.floor(Math.random() * cells.length)];
+      var r = pick[0], c = pick[1];
+      hintedCells.add(r + ',' + c);
+      suppressedAutoMarks.delete(r + ',' + c);
+      grid[r][c] = CellState.FILLED;
+      applyAutoMark();
+      view.hintedCells = hintedCells;
+      view.setGrid(grid);
+      refreshHighlights();
+      scheduleSave();
+      checkClear();
+    }
+
+    function refreshHighlights() {
+      var errorRows = new Set(), errorCols = new Set();
+      var completedRows = new Set(), completedCols = new Set();
+      for (var r = 0; r < grid.length; r++) {
+        for (var c = 0; c < grid[r].length; c++) {
+          var expected = solution[r] && solution[r][c] === 1;
+          var cur = grid[r][c];
+          if ((cur === CellState.FILLED && !expected) || ((cur === CellState.MARKED || cur === CellState.AUTO_MARKED) && expected)) {
+            errorRows.add(r); errorCols.add(c);
+          }
+        }
+      }
+      for (var r = 0; r < grid.length; r++) {
+        if (!errorRows.has(r) && grid[r].every(function(_, c) { return matchesSolution(r, c); })) completedRows.add(r);
+      }
+      var numCols = grid[0] ? grid[0].length : 0;
+      for (var c = 0; c < numCols; c++) {
+        if (!errorCols.has(c) && grid.every(function(row, r) { return matchesSolution(r, c); })) completedCols.add(c);
+      }
+      view.errorRows = errorRows; view.errorCols = errorCols;
+      view.completedRows = completedRows; view.completedCols = completedCols;
+      view.render();
+    }
+
+    function matchesSolution(r, c) {
+      var expected = solution[r] && solution[r][c] === 1;
+      return expected ? grid[r][c] === CellState.FILLED : grid[r][c] !== CellState.FILLED;
+    }
+
+    function applyAutoMark() {
+      var rh = (view && view.rowHints) || parseJsonField(puzzle ? (puzzle.rowHintsJson || puzzle.rowHints) : null, []);
+      var ch = (view && view.colHints) || parseJsonField(puzzle ? (puzzle.colHintsJson || puzzle.colHints) : null, []);
+      autoMarkConfirmed(grid, rh, ch, suppressedAutoMarks);
+    }
+
+    function checkClear() {
+      if (cleared || !verifySolution(grid, view.rowHints, view.colHints)) return;
+      cleared = true;
+      saveProgress();
+      fetchWeb('/nonogram/clear/' + puzzleId, { method: 'POST', body: JSON.stringify({}) });
+      document.getElementById('clearOverlay').classList.add('show');
+      setTimeout(function() {
+        location.href = '/nonogram/list.html?rows=' + (puzzle ? puzzle.rows : 10);
+      }, 3000);
+    }
+
+    function scheduleSave() {
+      clearTimeout(saveTimer);
+      saveTimer = setTimeout(saveProgress, 500);
+    }
+
+    function saveProgress() {
+      if (!puzzle || cleared || !puzzleId) return;
+      fetchWeb('/nonogram/progress/' + puzzleId, {
+        method: 'PUT',
+        body: JSON.stringify({
+          progressJson: encodeGrid(grid),
+          solutionHash: solutionHash(solution),
+          hintCells: encodeCells(hintedCells),
+          suppressedMarks: encodeCells(suppressedAutoMarks),
+          isFillMode: view ? view.fillMode : true
+        })
+      });
+    }
+
+    function saveAndLeave() {
+      saveProgress();
+      location.href = '/nonogram/list.html?rows=' + (puzzle ? puzzle.rows : urlRows || 10);
+    }
+
+    function setMode(fillMode) {
+      if (view) view.fillMode = fillMode;
+      document.getElementById('fill').classList.toggle('active', fillMode);
+      document.getElementById('fill').classList.toggle('secondary', !fillMode);
+      document.getElementById('mark').classList.toggle('active', !fillMode);
+      document.getElementById('mark').classList.toggle('secondary', fillMode);
+      scheduleSave();
+    }
+
+    function updateUndo() {
+      document.getElementById('undo').disabled = !undoStack.length || cleared;
+    }
+
+    function parseJsonField(value, fallback) {
+      if (Array.isArray(value)) return value;
+      try { return value ? JSON.parse(value) : fallback; } catch(e) { return fallback; }
+    }
+
+    function encodeCells(cells) {
+      var arr = [];
+      cells.forEach(function(c) { arr.push(c); });
+      return arr.sort().join(';');
+    }
+
+    function decodeCells(value) {
+      if (!value) return [];
+      return String(value).split(';').filter(function(t) { return /^\d+,\d+$/.test(t.trim()); });
+    }
+
+  }).catch(function(e) {
+    document.getElementById('message').textContent = 'Error: ' + e;
+  });
+  </script>
+</body>
+</html>

@@ -1,0 +1,54 @@
+{
+  "id": "linux-dns-resolution-001",
+  "title": "名前解決が失敗して外部リポジトリへ接続できない",
+  "category": "lpic1",
+  "difficulty": "beginner",
+  "summary": "IP通信は可能ですが、ホスト名を使う接続が失敗しています。",
+  "symptoms": ["外部リポジトリへの接続が失敗する", "名前解決に失敗するエラーが表示される", "IPアドレス宛ての通信は成功する"],
+  "version": {
+    "id": "linux-dns-resolution-001-v1",
+    "number": 1,
+    "actions": [
+      {"id":"interface-status","label":"ネットワークインターフェースの状態を確認する","phase":1,"patterns":[{"value":"ip link show","validationInput":"ip link show"}],"output":"eth0: UP","revealsEvidenceIds":["interface-up"],"cost":1,"isDangerous":false,"repeatable":true},
+      {"id":"ip-address","label":"IPアドレス設定を確認する","phase":1,"patterns":[{"value":"ip addr show","validationInput":"ip addr show"}],"output":"eth0 has a valid IPv4 address","revealsEvidenceIds":["ip-configured"],"cost":1,"isDangerous":false,"repeatable":true},
+      {"id":"default-route","label":"default routeを確認する","phase":1,"patterns":[{"value":"ip route show","validationInput":"ip route show"}],"output":"default route is present","revealsEvidenceIds":["default-route-present"],"cost":1,"isDangerous":false,"repeatable":true},
+      {"id":"ip-connectivity","label":"IPアドレス宛ての疎通を確認する","phase":1,"patterns":[{"value":"ping -c 1 198.51.100.10","validationInput":"ping -c 1 198.51.100.10"}],"output":"IP connectivity succeeds","revealsEvidenceIds":["ip-connectivity-ok"],"cost":1,"isDangerous":false,"repeatable":true},
+      {"id":"hostname-resolution","label":"対象ホスト名の名前解決を確認する","phase":1,"patterns":[{"value":"getent hosts repo.example.test","validationInput":"getent hosts repo.example.test"}],"output":"Name resolution returns no address","revealsEvidenceIds":["hostname-resolution-failed"],"cost":1,"isDangerous":false,"repeatable":true},
+      {"id":"resolver-config","label":"resolver設定を確認する","phase":1,"patterns":[{"value":"cat /etc/resolv.conf","validationInput":"cat /etc/resolv.conf"}],"output":"Configured nameserver is unavailable","revealsEvidenceIds":["resolver-unavailable"],"cost":1,"isDangerous":false,"repeatable":true},
+      {"id":"repository-request","label":"外部リポジトリへの要求結果を確認する","phase":1,"patterns":[{"value":"curl https://repo.example.test/metadata","validationInput":"curl https://repo.example.test/metadata"}],"output":"Request fails because the host name cannot be resolved","revealsEvidenceIds":["repository-name-resolution-error"],"cost":1,"isDangerous":false,"repeatable":true}
+    ],
+    "evidence": [
+      {"id":"interface-up","title":"インターフェース状態","type":1,"text":"ネットワークインターフェースは起動しています。"},
+      {"id":"ip-configured","title":"IPアドレス","type":3,"text":"有効なIPアドレスが設定されています。"},
+      {"id":"default-route-present","title":"経路","type":3,"text":"default routeが存在します。"},
+      {"id":"ip-connectivity-ok","title":"IP疎通","type":2,"text":"IPアドレス宛ての通信は成功します。"},
+      {"id":"hostname-resolution-failed","title":"名前解決","type":0,"text":"対象ホスト名を名前解決できません。"},
+      {"id":"resolver-unavailable","title":"resolver設定","type":3,"text":"設定済みnameserverへ問い合わせできません。"},
+      {"id":"repository-name-resolution-error","title":"リポジトリ接続","type":0,"text":"ホスト名を使う要求は名前解決失敗で中断します。"}
+    ],
+    "diagnoses": [
+      {"id":"resolver-configuration","text":"DNS resolver設定の問い合わせ先が利用できない"},
+      {"id":"missing-default-route","text":"default routeが存在しない"},
+      {"id":"repository-service-stopped","text":"対象リポジトリサービスが停止している"}
+    ],
+    "remediations": [
+      {"id":"set-correct-resolver","text":"利用可能なDNSサーバーをresolver設定に指定する"},
+      {"id":"add-default-route","text":"default routeを追加する"},
+      {"id":"restart-repository-client","text":"対象アプリケーションだけを再起動する"}
+    ],
+    "verifications": [
+      {"id":"hostname-resolves","text":"対象ホスト名を名前解決できることを確認する"},
+      {"id":"resolved-host-connects","text":"名前解決後の接続が成功することを確認する"},
+      {"id":"repository-operation-succeeds","text":"元のリポジトリ操作が成功することを確認する"},
+      {"id":"ip-connectivity-only","text":"IPアドレス宛ての疎通だけを再確認する"}
+    ],
+    "private": {
+      "correctDiagnosisId": "resolver-configuration",
+      "correctRemediationId": "set-correct-resolver",
+      "requiredVerificationIds": ["hostname-resolves", "resolved-host-connects", "repository-operation-succeeds"],
+      "requiredEvidenceIds": ["default-route-present", "ip-connectivity-ok", "hostname-resolution-failed", "resolver-unavailable"],
+      "exemplaryPath": ["default-route", "ip-connectivity", "hostname-resolution", "resolver-config"],
+      "explanation": "IP通信と経路は正常であり、利用不能なnameserver設定が名前解決失敗の原因です。"
+    }
+  }
+}

@@ -1,0 +1,1 @@
+namespace InfraLab.Client.Models;

@@ -1,0 +1,39 @@
+# .NET ビルド成果物
+bin/
+obj/
+.vs/
+
+# Visual Studio ユーザーファイル
+*.user
+*.suo
+
+# テスト・カバレッジ
+TestResults/
+coverage/
+
+# 秘密情報・環境変数
+.env
+.env.*
+*.secrets
+appsettings.Production.json
+appsettings.Staging.json
+
+# NuGet
+*.nupkg
+.nuget/
+
+# 発行・ビルド出力
+publish/
+wwwroot/dist/
+
+# OS 生成ファイル
+Thumbs.db
+.DS_Store
+
+# ログ
+*.log
+
+# 除外しないもの（明示）
+# docs/       → 設計書は必ず追跡
+# content/    → シナリオ原稿は必ず追跡
+# **/.gitkeep → 空フォルダ保持用は追跡

@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.9" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.9">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="Microsoft.OpenApi" Version="2.7.5" />
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.Server" Version="10.0.9" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\InfraLab.Domain\InfraLab.Domain.csproj" />
+    <ProjectReference Include="..\InfraLab.Application\InfraLab.Application.csproj" />
+    <ProjectReference Include="..\InfraLab.Infrastructure\InfraLab.Infrastructure.csproj" />
+    <ProjectReference Include="..\InfraLab.Contracts\InfraLab.Contracts.csproj" />
+    <ProjectReference Include="..\InfraLab.Client\InfraLab.Client.csproj" />
+  </ItemGroup>
+
+</Project>

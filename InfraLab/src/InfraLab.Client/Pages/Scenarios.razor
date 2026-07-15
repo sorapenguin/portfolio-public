@@ -1,0 +1,15 @@
+@page "/scenarios"
+@inject Services.InfraLabApiClient Api
+@inject NavigationManager Navigation
+@implements IDisposable
+<PageTitle>シナリオ一覧 | InfraLab</PageTitle>
+<h1>シナリオ一覧</h1>
+@if (loading) { <p role="status">読み込み中です…</p> }
+else if (error) { <p class="error">一覧を取得できませんでした。</p><button @onclick="LoadAsync">再読み込み</button> }
+else if (scenarios.Count == 0) { <p>利用可能なシナリオがありません。</p> }
+else { <div class="cards">@foreach (var item in scenarios) { <article class="card"><h2>@item.Title</h2><p>@item.Category / @item.Difficulty</p><p>@item.Summary</p><button disabled="@starting" @onclick="() => StartAsync(item.Id)">@(starting ? "開始中…" : "開始する")</button></article> }</div> }
+@code { private readonly CancellationTokenSource cts = new(); private List<Contracts.ScenarioListItem> scenarios=[]; private bool loading=true,error,starting;
+protected override async Task OnInitializedAsync()=>await LoadAsync();
+private async Task LoadAsync(){loading=true;error=false;try{scenarios=(await Api.GetScenariosAsync(cts.Token)).ToList();}catch{error=true;}finally{loading=false;}}
+private async Task StartAsync(string id){if(starting)return;starting=true;try{var attempt=await Api.StartAttemptAsync(id,cts.Token);Navigation.NavigateTo($"attempts/{attempt.Id}");}catch{error=true;starting=false;}}
+public void Dispose()=>cts.Cancel(); }

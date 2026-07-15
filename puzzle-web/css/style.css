@@ -1,0 +1,295 @@
+:root {
+  --primary: #4a6fa5;
+  --primary-dark: #33527e;
+  --bg: #f8f9fa;
+  --card: #fff;
+  --text: #333;
+  --muted: #6b7280;
+  --line: #dfe3e8;
+  --danger: #c62828;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  line-height: 1.5;
+}
+
+a {
+  color: var(--primary);
+  text-decoration: none;
+}
+
+button,
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  border: 1px solid var(--primary);
+  border-radius: 6px;
+  padding: 8px 16px;
+  background: var(--primary);
+  color: #fff;
+  font: inherit;
+  cursor: pointer;
+  gap: 6px;
+}
+
+button.secondary,
+.button.secondary {
+  background: #fff;
+  color: var(--primary);
+}
+
+button:disabled {
+  opacity: .55;
+  cursor: not-allowed;
+}
+
+.site-header {
+  background: #fff;
+  border-bottom: 1px solid var(--line);
+}
+
+.site-header-inner {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.brand {
+  color: var(--text);
+  font-weight: 700;
+}
+
+.nav {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: 14px;
+}
+
+.container {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 18px 16px 36px;
+}
+
+.ad-slot {
+  min-height: 90px;
+  border: 1px dashed #c8cdd3;
+  background: #eee;
+  color: #777;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 0 18px;
+}
+
+.ad-bottom {
+  margin-top: 18px;
+}
+
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 14px;
+}
+
+.card,
+.panel {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.card h2,
+.panel h1,
+.panel h2 {
+  margin: 0 0 8px;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.tabs,
+.toolbar,
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.tab {
+  background: #fff;
+  color: var(--primary);
+}
+
+.tab.active,
+.mode.active {
+  background: var(--primary);
+  color: #fff;
+}
+
+.progress {
+  height: 12px;
+  background: #e5e7eb;
+  border-radius: 999px;
+  overflow: hidden;
+  margin: 8px 0;
+}
+
+.progress-bar {
+  height: 100%;
+  width: 0;
+  background: var(--primary);
+  transition: width .35s ease;
+}
+
+.puzzle-list {
+  display: grid;
+  gap: 10px;
+}
+
+.puzzle-card {
+  display: block;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 14px;
+  color: var(--text);
+}
+
+.puzzle-card:hover {
+  border-color: var(--primary);
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  border-radius: 999px;
+  padding: 2px 10px;
+  background: #eef2ff;
+  color: var(--primary-dark);
+  font-size: 13px;
+}
+
+.canvas-wrap {
+  width: 100%;
+  overflow-x: auto;
+  text-align: center;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px;
+}
+
+canvas {
+  max-width: 100%;
+  height: auto;
+  touch-action: none;
+}
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, .35);
+  z-index: 10;
+}
+
+.overlay.show {
+  display: flex;
+}
+
+.overlay-box {
+  background: #fff;
+  border-radius: 8px;
+  padding: 24px 32px;
+  font-size: 24px;
+  font-weight: 700;
+}
+
+.form {
+  display: grid;
+  gap: 12px;
+}
+
+input {
+  width: 100%;
+  min-height: 42px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font: inherit;
+}
+
+.error {
+  color: var(--danger);
+}
+
+.palette-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 12px 16px;
+  justify-content: center;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  margin: 10px 0;
+}
+
+.px-swatch {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 2px solid #aaa;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: bold;
+  transition: transform .1s;
+  user-select: none;
+}
+
+.px-swatch.active {
+  border-width: 3px;
+  border-color: #222;
+  transform: scale(1.2);
+}
+
+@media (max-width: 560px) {
+  .site-header-inner,
+  .nav {
+    align-items: flex-start;
+  }
+
+  button,
+  .button {
+    padding: 8px 12px;
+  }
+}
+
