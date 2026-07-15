@@ -1,4 +1,0 @@
-# .htaccess in config/
-# 全てのアクセスを拒否
-Order allow,deny
-Deny from all
