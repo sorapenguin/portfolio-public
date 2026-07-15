@@ -1,0 +1,75 @@
+@page
+@model Calendo.Pages.IndexModel
+@{
+    ViewData["Title"] = "共有カレンダー";
+}
+
+<div class="d-flex align-items-center justify-content-between mb-3">
+    <h1 class="h3 mb-0">共有カレンダー</h1>
+    @if (User.Identity?.IsAuthenticated == true)
+    {
+        <a class="btn btn-primary" asp-page="/Events/Create">+ 予定を追加</a>
+    }
+</div>
+
+<div id="calendar"></div>
+
+@section Scripts {
+    <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.15/index.global.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@@microsoft/signalr@8.0.7/dist/browser/signalr.min.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            const calendar = new FullCalendar.Calendar(document.getElementById('calendar'), {
+                initialView: 'dayGridMonth',
+                locale: 'ja',
+                height: 'auto',
+                navLinks: true,
+                slotDuration: '00:30:00',
+                snapDuration: '00:30:00',
+                headerToolbar: {
+                    left: 'prev,next today',
+                    center: 'title',
+                    right: 'dayGridMonth,timeGridWeek,timeGridDay'
+                },
+                events: '/api/events',
+                navLinkDayClick: function (date) {
+                    calendar.changeView('timeGridDay', date);
+                },
+                dateClick: function (info) {
+                    if (info.view.type === 'dayGridMonth') {
+                        calendar.changeView('timeGridDay', info.date);
+                        return;
+                    }
+
+                    if ((info.view.type === 'timeGridWeek' || info.view.type === 'timeGridDay') && !info.allDay) {
+                        window.location.href = '/events/create?start=' + encodeURIComponent(formatLocalMinute(info.date));
+                    }
+                },
+                eventClick: function (info) {
+                    window.location.href = '/events/' + info.event.id;
+                }
+            });
+            calendar.render();
+
+            const connection = new signalR.HubConnectionBuilder()
+                .withUrl('/calendarHub')
+                .withAutomaticReconnect()
+                .build();
+            connection.on('EventChanged', function () {
+                calendar.refetchEvents();
+            });
+            connection.start().catch(function (err) {
+                console.error(err.toString());
+            });
+
+            function formatLocalMinute(date) {
+                const pad = function (number) { return String(number).padStart(2, '0'); };
+                return date.getFullYear() + '-' +
+                    pad(date.getMonth() + 1) + '-' +
+                    pad(date.getDate()) + 'T' +
+                    pad(date.getHours()) + ':' +
+                    pad(date.getMinutes());
+            }
+        });
+    </script>
+}

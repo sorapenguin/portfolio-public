@@ -1,0 +1,77 @@
+@using Calendo.Pages.Events
+@model IEventFormModel
+
+<div asp-validation-summary="All" class="alert alert-danger" role="alert"></div>
+<div class="mb-3">
+    <label asp-for="Input.EventTypeKey" class="form-label"></label>
+    <select asp-for="Input.EventTypeKey" class="form-select">
+        @foreach (var option in Model.EventTypeOptions)
+        {
+            <option value="@option.Key">@option.Title</option>
+        }
+    </select>
+    <span asp-validation-for="Input.EventTypeKey" class="text-danger"></span>
+    <div class="form-text">公開デモ用に、表示される予定名は選択式にしています。</div>
+</div>
+<div class="row">
+    <div class="col-md-6 mb-3">
+        <label asp-for="Input.StartAt" class="form-label"></label>
+        <input asp-for="Input.StartAt" class="form-control" type="datetime-local" asp-format="{0:yyyy-MM-ddTHH:mm}" step="1800" />
+        <span asp-validation-for="Input.StartAt" class="text-danger"></span>
+    </div>
+    <div class="col-md-6 mb-3">
+        <label asp-for="Input.EndAt" class="form-label"></label>
+        <input asp-for="Input.EndAt" class="form-control" type="datetime-local" asp-format="{0:yyyy-MM-ddTHH:mm}" step="1800" />
+        <span asp-validation-for="Input.EndAt" class="text-danger"></span>
+    </div>
+</div>
+<div class="form-check mb-3">
+    <input asp-for="Input.IsAllDay" class="form-check-input" />
+    <label asp-for="Input.IsAllDay" class="form-check-label"></label>
+</div>
+<fieldset class="mb-3">
+    <legend class="h6">参加者</legend>
+    <div class="attendee-grid">
+        @foreach (var user in Model.Users)
+        {
+            <label class="form-check attendee-option">
+                <input class="form-check-input" type="checkbox" name="Input.SelectedUserIds" value="@user.Id" checked="@Model.Input.SelectedUserIds.Contains(user.Id)" />
+                <span class="user-dot" style="background:@user.Color"></span>
+                <span>@user.DisplayName</span>
+            </label>
+        }
+    </div>
+</fieldset>
+
+<script>
+    (function () {
+        const startInput = document.getElementById('Input_StartAt');
+        const endInput = document.getElementById('Input_EndAt');
+        if (!startInput || !endInput) return;
+
+        function parseLocal(value) {
+            if (!value) return null;
+            const parsed = new Date(value);
+            return Number.isNaN(parsed.getTime()) ? null : parsed;
+        }
+
+        function formatLocal(date) {
+            const pad = function (number) { return String(number).padStart(2, '0'); };
+            return date.getFullYear() + '-' +
+                pad(date.getMonth() + 1) + '-' +
+                pad(date.getDate()) + 'T' +
+                pad(date.getHours()) + ':' +
+                pad(date.getMinutes());
+        }
+
+        startInput.addEventListener('change', function () {
+            const start = parseLocal(startInput.value);
+            const end = parseLocal(endInput.value);
+            if (!start) return;
+
+            if (!end || end <= start) {
+                endInput.value = formatLocal(new Date(start.getTime() + 60 * 60 * 1000));
+            }
+        });
+    })();
+</script>

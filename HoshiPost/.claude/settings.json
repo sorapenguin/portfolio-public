@@ -1,0 +1,25 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(.\\gradlew.bat --no-daemon assembleDebug*)",
+      "PowerShell(.\\gradlew.bat --no-daemon testDebugUnitTest*)",
+      "PowerShell(.\\gradlew.bat --no-daemon installDebug*)",
+      "PowerShell(.\\gradlew.bat --no-daemon build*)",
+      "PowerShell(.\\gradlew.bat --no-daemon tasks*)",
+      "PowerShell(.\\gradlew.bat assembleDebug*)",
+      "PowerShell(.\\gradlew.bat testDebugUnitTest*)",
+      "PowerShell(.\\gradlew.bat installDebug*)",
+      "Bash(adb devices*)",
+      "Bash(adb logcat*)",
+      "Bash(adb install*)",
+      "Bash(git status*)",
+      "Bash(git log*)",
+      "Bash(git diff*)",
+      "PowerShell(Get-ChildItem*)",
+      "PowerShell(Get-Content*)",
+      "PowerShell(ls*)",
+      "PowerShell(dir*)",
+      "PowerShell(cat*)"
+    ]
+  }
+}

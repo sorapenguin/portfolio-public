@@ -1,0 +1,50 @@
+@page "/admin/users"
+@model Calendo.Pages.Admin.UsersModel
+@{
+    ViewData["Title"] = "ユーザー管理";
+}
+
+<h1 class="h3 mb-3">ユーザー管理</h1>
+<table class="table align-middle">
+    <thead>
+        <tr>
+            <th>表示名</th>
+            <th>Email</th>
+            <th>色</th>
+            <th>管理者</th>
+            <th></th>
+        </tr>
+    </thead>
+    <tbody>
+        @foreach (var user in Model.Users)
+        {
+            <tr>
+                <td><span class="user-dot" style="background:@user.Color"></span>@user.DisplayName</td>
+                <td>@user.Email</td>
+                <td><code>@user.Color</code></td>
+                <td>
+                    @if (UsersModel.IsProtectedDemoAccount(user))
+                    {
+                        <span class="badge text-bg-secondary">固定</span>
+                    }
+                    else
+                    {
+                        <form method="post" asp-page-handler="ToggleAdmin" asp-route-id="@user.Id">
+                            <button type="submit" class="btn btn-sm @(user.IsAdmin ? "btn-success" : "btn-outline-secondary")">
+                                @(user.IsAdmin ? "ON" : "OFF")
+                            </button>
+                        </form>
+                    }
+                </td>
+                <td class="text-end">
+                    @if (user.Id != Model.CurrentUserId && !UsersModel.IsProtectedDemoAccount(user))
+                    {
+                        <form method="post" asp-page-handler="Delete" asp-route-id="@user.Id">
+                            <button type="submit" class="btn btn-sm btn-outline-danger">削除</button>
+                        </form>
+                    }
+                </td>
+            </tr>
+        }
+    </tbody>
+</table>

@@ -1,0 +1,54 @@
+@page "/events/{id:int}"
+@model Calendo.Pages.Events.DetailModel
+@{
+    ViewData["Title"] = Model.CalendarEvent?.Title ?? "予定詳細";
+}
+
+@if (Model.CalendarEvent != null)
+{
+    <div class="d-flex align-items-start justify-content-between mb-3">
+        <div>
+            <h1 class="h3 mb-2">@Model.CalendarEvent.Title</h1>
+            <div class="text-muted">@Model.CalendarEvent.CreatedBy.DisplayName</div>
+        </div>
+        @if (Model.CanEdit)
+        {
+            <div class="d-flex gap-2">
+                <a asp-page="/Events/Edit" asp-route-id="@Model.CalendarEvent.Id" class="btn btn-outline-primary">編集</a>
+                <form method="post" asp-page-handler="Delete" asp-route-id="@Model.CalendarEvent.Id">
+                    <button type="submit" class="btn btn-outline-danger">削除</button>
+                </form>
+            </div>
+        }
+    </div>
+
+    <dl class="row">
+        <dt class="col-sm-2">開始</dt>
+        <dd class="col-sm-10">@Model.CalendarEvent.StartAt.ToLocalTime().ToString("yyyy/MM/dd HH:mm")</dd>
+        <dt class="col-sm-2">終了</dt>
+        <dd class="col-sm-10">@Model.CalendarEvent.EndAt.ToLocalTime().ToString("yyyy/MM/dd HH:mm")</dd>
+        <dt class="col-sm-2">終日</dt>
+        <dd class="col-sm-10">@(Model.CalendarEvent.IsAllDay ? "はい" : "いいえ")</dd>
+        <dt class="col-sm-2">説明</dt>
+        <dd class="col-sm-10">@Model.CalendarEvent.Description</dd>
+    </dl>
+
+    <h2 class="h5 mt-4">参加者</h2>
+    <ul class="list-group attendee-list">
+        @foreach (var attendee in Model.CalendarEvent.Attendees.OrderBy(a => a.User.DisplayName))
+        {
+            <li class="list-group-item d-flex align-items-center justify-content-between">
+                <span><span class="user-dot" style="background:@attendee.User.Color"></span>@attendee.User.DisplayName</span>
+                <span class="badge text-bg-secondary">@attendee.Status</span>
+            </li>
+        }
+    </ul>
+
+    @if (Model.CurrentAttendee != null)
+    {
+        <form method="post" asp-page-handler="Status" asp-route-id="@Model.CalendarEvent.Id" class="mt-3 d-flex gap-2">
+            <button type="submit" name="status" value="Accepted" class="btn btn-success">参加する</button>
+            <button type="submit" name="status" value="Declined" class="btn btn-outline-secondary">辞退する</button>
+        </form>
+    }
+}

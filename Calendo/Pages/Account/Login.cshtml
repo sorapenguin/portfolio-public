@@ -1,0 +1,19 @@
+@page "/account/login"
+@model Calendo.Pages.Account.LoginModel
+@{
+    ViewData["Title"] = "ログイン";
+}
+
+<h1 class="h3 mb-3">ログイン</h1>
+<form method="post" class="auth-form">
+    <div asp-validation-summary="ModelOnly" class="text-danger"></div>
+    <p class="text-muted">公開デモでは、用途別の固定アカウントを選択してログインします。</p>
+    <div class="d-grid gap-3">
+        <button type="submit" asp-page-handler="Demo" name="account" value="user" class="btn btn-primary">
+            一般ユーザーでログイン
+        </button>
+        <button type="submit" asp-page-handler="Demo" name="account" value="admin" class="btn btn-outline-danger">
+            管理者デモでログイン
+        </button>
+    </div>
+</form>

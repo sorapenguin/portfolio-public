@@ -1,0 +1,16 @@
+@page "/events/{id:int}/edit"
+@model Calendo.Pages.Events.EditModel
+@{
+    ViewData["Title"] = "予定を編集";
+}
+
+<h1 class="h3 mb-3">予定を編集</h1>
+<form method="post">
+    <partial name="_EventForm" model="Model" />
+    <button type="submit" class="btn btn-primary">保存</button>
+    <a asp-page="/Events/Detail" asp-route-id="@Model.EventId" class="btn btn-link">戻る</a>
+</form>
+
+@section Scripts {
+    <partial name="_ValidationScriptsPartial" />
+}

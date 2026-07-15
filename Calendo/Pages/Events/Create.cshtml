@@ -1,0 +1,16 @@
+@page "/events/create"
+@model Calendo.Pages.Events.CreateModel
+@{
+    ViewData["Title"] = "予定を追加";
+}
+
+<h1 class="h3 mb-3">予定を追加</h1>
+<form method="post">
+    <partial name="_EventForm" model="Model" />
+    <button type="submit" class="btn btn-primary">保存</button>
+    <a asp-page="/Index" class="btn btn-link">戻る</a>
+</form>
+
+@section Scripts {
+    <partial name="_ValidationScriptsPartial" />
+}
