@@ -1,0 +1,190 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://golab.local/schema/scenario-v2.schema.json",
+  "title": "GoLab Scenario Schema v2",
+  "description": "Closed input contract for GoLab Core and Drill scenarios. Engine results are intentionally excluded.",
+  "type": "object",
+  "properties": {
+    "schema_version": { "type": "integer" },
+    "type": { "type": "string" },
+    "id": { "type": "string" },
+    "title": { "type": "string" },
+    "description": { "type": "string" },
+    "difficulty": { "type": "string" },
+    "category": { "type": "string" },
+    "learning_goals": { "type": "array" },
+    "topology": { "type": "object" },
+    "explanation": { "type": "string" },
+    "wrong_explanation": { "type": "string" },
+    "cloud_concept_refs": { "type": "array" },
+    "core_id": { "type": "string" },
+    "variant_note": { "type": "string" },
+    "overrides": { "type": "object" }
+  },
+  "oneOf": [
+    { "$ref": "#/$defs/CoreScenario" },
+    { "$ref": "#/$defs/DrillScenario" }
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "ScenarioId": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*$"
+    },
+    "Difficulty": {
+      "type": "string",
+      "enum": ["beginner", "intermediate", "advanced"]
+    },
+    "NodeId": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*$"
+    },
+    "WafSettings": {
+      "type": "object",
+      "required": ["block"],
+      "properties": {
+        "block": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "LoadBalancerSettings": {
+      "type": "object",
+      "required": ["healthy_targets"],
+      "properties": {
+        "healthy_targets": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "ReverseProxySettings": {
+      "type": "object",
+      "required": ["timeout_ms"],
+      "properties": {
+        "timeout_ms": { "type": "integer", "exclusiveMinimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "ApplicationSettings": {
+      "type": "object",
+      "required": ["response_delay_ms", "response_type"],
+      "properties": {
+        "response_delay_ms": { "type": "integer", "minimum": 0 },
+        "response_type": { "type": "string", "enum": ["normal", "malformed"] },
+        "status_code": { "type": "integer", "minimum": 100, "maximum": 599 }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "response_type": { "const": "normal" } }, "required": ["response_type"] },
+          "then": { "required": ["status_code"] },
+          "else": { "not": { "required": ["status_code"] } }
+        }
+      ],
+      "additionalProperties": false
+    },
+    "Node": {
+      "type": "object",
+      "required": ["id", "type", "label"],
+      "properties": {
+        "id": { "$ref": "#/$defs/NodeId" },
+        "type": {
+          "type": "string",
+          "enum": ["client", "dns", "edge", "waf", "lb", "proxy", "app", "db"]
+        },
+        "label": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "settings": { "type": "object" }
+      },
+      "oneOf": [
+        { "properties": { "type": { "const": "client" } }, "not": { "required": ["settings"] } },
+        { "properties": { "type": { "const": "dns" } }, "not": { "required": ["settings"] } },
+        { "properties": { "type": { "const": "edge" } }, "not": { "required": ["settings"] } },
+        { "properties": { "type": { "const": "db" } }, "not": { "required": ["settings"] } },
+        { "properties": { "type": { "const": "waf" }, "settings": { "$ref": "#/$defs/WafSettings" } }, "required": ["settings"] },
+        { "properties": { "type": { "const": "lb" }, "settings": { "$ref": "#/$defs/LoadBalancerSettings" } }, "required": ["settings"] },
+        { "properties": { "type": { "const": "proxy" }, "settings": { "$ref": "#/$defs/ReverseProxySettings" } }, "required": ["settings"] },
+        { "properties": { "type": { "const": "app" }, "settings": { "$ref": "#/$defs/ApplicationSettings" } }, "required": ["settings"] }
+      ],
+      "additionalProperties": false
+    },
+    "Edge": {
+      "type": "object",
+      "required": ["from", "to"],
+      "properties": {
+        "from": { "$ref": "#/$defs/NodeId" },
+        "to": { "$ref": "#/$defs/NodeId" }
+      },
+      "additionalProperties": false
+    },
+    "Topology": {
+      "type": "object",
+      "required": ["nodes", "edges"],
+      "properties": {
+        "nodes": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/Node" } },
+        "edges": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/Edge" } }
+      },
+      "additionalProperties": false
+    },
+    "CoreScenario": {
+      "type": "object",
+      "required": ["schema_version", "type", "id", "title", "description", "difficulty", "category", "learning_goals", "topology", "explanation", "wrong_explanation"],
+      "properties": {
+        "schema_version": { "const": 2 },
+        "type": { "const": "core" },
+        "id": { "$ref": "#/$defs/ScenarioId" },
+        "title": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "description": { "type": "string", "minLength": 1, "maxLength": 500 },
+        "difficulty": { "$ref": "#/$defs/Difficulty" },
+        "category": { "type": "string", "enum": ["timeout", "error", "redirect", "security", "availability"] },
+        "learning_goals": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1, "maxLength": 200 } },
+        "topology": { "$ref": "#/$defs/Topology" },
+        "explanation": { "type": "string", "minLength": 1 },
+        "wrong_explanation": { "type": "string", "minLength": 1 },
+        "cloud_concept_refs": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+      },
+      "additionalProperties": false
+    },
+    "WafOverride": { "type": "object", "required": ["block"], "properties": { "block": { "type": "boolean" } }, "additionalProperties": false },
+    "LoadBalancerOverride": { "type": "object", "required": ["healthy_targets"], "properties": { "healthy_targets": { "type": "integer", "minimum": 0 } }, "additionalProperties": false },
+    "ReverseProxyOverride": { "type": "object", "required": ["timeout_ms"], "properties": { "timeout_ms": { "type": "integer", "exclusiveMinimum": 0 } }, "additionalProperties": false },
+    "ApplicationOverride": {
+      "type": "object",
+      "minProperties": 1,
+      "properties": {
+        "response_delay_ms": { "type": "integer", "minimum": 0 },
+        "response_type": { "type": "string", "enum": ["normal", "malformed"] },
+        "status_code": { "type": "integer", "minimum": 100, "maximum": 599 }
+      },
+      "if": { "properties": { "response_type": { "const": "malformed" } }, "required": ["response_type"] },
+      "then": { "not": { "required": ["status_code"] } },
+      "additionalProperties": false
+    },
+    "OverrideSettings": {
+      "oneOf": [
+        { "$ref": "#/$defs/WafOverride" },
+        { "$ref": "#/$defs/LoadBalancerOverride" },
+        { "$ref": "#/$defs/ReverseProxyOverride" },
+        { "$ref": "#/$defs/ApplicationOverride" }
+      ]
+    },
+    "Overrides": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": { "$ref": "#/$defs/NodeId" },
+      "additionalProperties": { "$ref": "#/$defs/OverrideSettings" }
+    },
+    "DrillScenario": {
+      "type": "object",
+      "required": ["schema_version", "type", "id", "core_id", "title", "description", "difficulty", "overrides"],
+      "properties": {
+        "schema_version": { "const": 2 },
+        "type": { "const": "drill" },
+        "id": { "$ref": "#/$defs/ScenarioId" },
+        "core_id": { "$ref": "#/$defs/ScenarioId" },
+        "title": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "description": { "type": "string", "minLength": 1, "maxLength": 500 },
+        "difficulty": { "$ref": "#/$defs/Difficulty" },
+        "variant_note": { "type": "string", "minLength": 1 },
+        "overrides": { "$ref": "#/$defs/Overrides" }
+      },
+      "additionalProperties": false
+    }
+  }
+}

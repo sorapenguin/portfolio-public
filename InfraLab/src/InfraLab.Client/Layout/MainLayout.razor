@@ -1,2 +1,22 @@
-﻿@inherits LayoutComponentBase
-<header><a href="">InfraLab</a><a href="scenarios">シナリオ一覧</a></header><main class="content">@Body</main>
+@inherits LayoutComponentBase
+
+<header class="site-header">
+    <div class="container">
+        <a href="" class="logo-link">
+            <div class="logo-badge">IL&gt;</div>
+        </a>
+        <div>
+            <span class="site-name">InfraLab</span>
+            <span class="site-desc">障害調査・トラブルシューティング演習</span>
+        </div>
+        <nav class="header-nav">
+            <a href="scenarios">シナリオ一覧</a>
+        </nav>
+    </div>
+</header>
+
+<main class="page-main">
+    <div class="container">
+        @Body
+    </div>
+</main>

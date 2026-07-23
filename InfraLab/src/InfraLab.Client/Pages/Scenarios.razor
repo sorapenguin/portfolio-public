@@ -1,15 +1,163 @@
 @page "/scenarios"
 @inject Services.InfraLabApiClient Api
 @inject NavigationManager Navigation
+@inject IJSRuntime JS
 @implements IDisposable
+@using Microsoft.AspNetCore.Components
+@using System.Text.Json
+
 <PageTitle>シナリオ一覧 | InfraLab</PageTitle>
-<h1>シナリオ一覧</h1>
-@if (loading) { <p role="status">読み込み中です…</p> }
-else if (error) { <p class="error">一覧を取得できませんでした。</p><button @onclick="LoadAsync">再読み込み</button> }
-else if (scenarios.Count == 0) { <p>利用可能なシナリオがありません。</p> }
-else { <div class="cards">@foreach (var item in scenarios) { <article class="card"><h2>@item.Title</h2><p>@item.Category / @item.Difficulty</p><p>@item.Summary</p><button disabled="@starting" @onclick="() => StartAsync(item.Id)">@(starting ? "開始中…" : "開始する")</button></article> }</div> }
-@code { private readonly CancellationTokenSource cts = new(); private List<Contracts.ScenarioListItem> scenarios=[]; private bool loading=true,error,starting;
-protected override async Task OnInitializedAsync()=>await LoadAsync();
-private async Task LoadAsync(){loading=true;error=false;try{scenarios=(await Api.GetScenariosAsync(cts.Token)).ToList();}catch{error=true;}finally{loading=false;}}
-private async Task StartAsync(string id){if(starting)return;starting=true;try{var attempt=await Api.StartAttemptAsync(id,cts.Token);Navigation.NavigateTo($"attempts/{attempt.Id}");}catch{error=true;starting=false;}}
-public void Dispose()=>cts.Cancel(); }
+
+<div style="margin-bottom:1.75rem">
+    <p class="page-eyebrow">Scenarios</p>
+    <h1 class="page-h1">シナリオ一覧</h1>
+    <p class="page-lead">カテゴリ内の障害シナリオを選んでください。</p>
+</div>
+
+@if (loading)
+{
+    <p class="status-loading" role="status">読み込み中です…</p>
+}
+else if (error)
+{
+    <div class="msg-error">
+        <p style="margin:0 0 .75rem">一覧を取得できませんでした。</p>
+        <button @onclick="LoadAsync">再読み込み</button>
+    </div>
+}
+else if (scenarios.Count == 0)
+{
+    <div class="empty-state">利用可能なシナリオがありません。</div>
+}
+else
+{
+    @if (!string.IsNullOrWhiteSpace(startError))
+    {
+        <div class="msg-error" role="alert" style="margin-bottom:1rem">@startError</div>
+    }
+    <div class="cards-grid">
+        @foreach (var item in scenarios)
+        {
+            var state = attemptStates.GetValueOrDefault(item.Id);
+            var meta = state == null ? "未開始" : state.Value.Status == 1 ? "完了" : "途中";
+            var metaCss = meta == "完了" ? "scenario-meta meta-done" : meta == "途中" ? "scenario-meta meta-progress" : "scenario-meta";
+            var btnLabel = state == null ? "挑戦する →" : state.Value.Status == 1 ? "もう一度挑戦" : "再開する →";
+
+            <article class="scenario-card">
+                <div class="scenario-card-head">
+                    <span class="badge badge-route">@item.Category</span>
+                    <span class="@metaCss">@meta</span>
+                </div>
+                <h2>@item.Title</h2>
+                <p class="scenario-summary">@item.Summary</p>
+                <div class="scenario-card-foot">
+                    @if (state.HasValue && state.Value.Status == 1)
+                    {
+                        <a href="attempts/@state.Value.AttemptId" class="btn" style="font-size:.8rem">前回の結果を見る</a>
+                    }
+                    <button class="btn btn-primary" disabled="@(startingId == item.Id)" @onclick="() => StartAsync(item.Id)">
+                        @(startingId == item.Id ? "開始中…" : btnLabel)
+                    </button>
+                </div>
+            </article>
+        }
+    </div>
+}
+
+@code {
+    private const string LocalStorageKey = "infralab:attempts";
+
+    [SupplyParameterFromQuery(Name = "category")] public string? Category { get; set; }
+    private readonly CancellationTokenSource cts = new();
+    private List<Contracts.ScenarioListItem> scenarios = [];
+    private bool loading = true, error;
+    private string? startingId;
+    private string? startError;
+    // scenarioId → (AttemptId, Phase, Status)
+    private Dictionary<string, (Guid AttemptId, int Phase, int Status)?> attemptStates = [];
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        loading = true;
+        error = false;
+        startError = null;
+        try
+        {
+            scenarios = (await Api.GetScenariosAsync(cts.Token)).ToList();
+            if (!string.IsNullOrWhiteSpace(Category))
+                scenarios = scenarios.Where(x => string.Equals(x.Category, Category, StringComparison.OrdinalIgnoreCase)).ToList();
+        }
+        catch { error = true; }
+        finally { loading = false; }
+
+        if (!error) await LoadAttemptStatesAsync();
+    }
+
+    // Load stored attempt IDs from localStorage and fetch their current status
+    private async Task LoadAttemptStatesAsync()
+    {
+        try
+        {
+            var json = await JS.InvokeAsync<string?>("infralab.ls.get", LocalStorageKey);
+            if (string.IsNullOrWhiteSpace(json)) return;
+            var map = JsonSerializer.Deserialize<Dictionary<string, string>>(json) ?? [];
+            foreach (var scenarioId in scenarios.Select(s => s.Id))
+            {
+                if (!map.TryGetValue(scenarioId, out var guidStr) || !Guid.TryParse(guidStr, out var attemptId))
+                    continue;
+                try
+                {
+                    var attempt = await Api.GetAttemptAsync(attemptId, cts.Token);
+                    attemptStates[scenarioId] = (attempt.Id, attempt.Phase, attempt.Status);
+                }
+                catch { }
+            }
+            StateHasChanged();
+        }
+        catch { }
+    }
+
+    private async Task SaveAttemptIdAsync(string scenarioId, Guid attemptId)
+    {
+        try
+        {
+            var json = await JS.InvokeAsync<string?>("infralab.ls.get", LocalStorageKey) ?? "{}";
+            Dictionary<string, string> map;
+            try { map = JsonSerializer.Deserialize<Dictionary<string, string>>(json) ?? []; }
+            catch { map = []; }
+            map[scenarioId] = attemptId.ToString("D");
+            await JS.InvokeVoidAsync("infralab.ls.set", LocalStorageKey, JsonSerializer.Serialize(map));
+            // Update in-memory state optimistically (Status=0=InProgress, Phase=0=Observe)
+            attemptStates[scenarioId] = (attemptId, 0, 0);
+        }
+        catch { }
+    }
+
+    private async Task StartAsync(string id)
+    {
+        if (startingId is not null) return;
+        startingId = id;
+        startError = null;
+        try
+        {
+            var attempt = await Api.StartAttemptAsync(id, cts.Token);
+            await SaveAttemptIdAsync(id, attempt.Id);
+            Navigation.NavigateTo($"/attempts/{attempt.Id}");
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch
+        {
+            startError = "演習を開始できませんでした。しばらくしてからもう一度お試しください。";
+        }
+        finally
+        {
+            startingId = null;
+        }
+    }
+
+    public void Dispose() => cts.Cancel();
+}

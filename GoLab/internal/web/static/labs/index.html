@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Guided Labs | GoLab</title>
+  <link rel="stylesheet" href="/labs/assets/labs.css">
+  <link rel="stylesheet" href="/labs/assets/learning.css">
+</head>
+<body>
+  <header class="site-header"><a href="/labs">GoLab</a><p>設定を変えて、インフラの結果が変わる理由を学ぶ</p></header>
+  <main id="app" aria-busy="true">
+    <p id="loading" role="status">Labを読み込んでいます…</p>
+    <div id="error" class="notice error" role="alert" hidden></div>
+    <section id="list-view" aria-labelledby="list-title"><h1 id="list-title">Guided Labs</h1><p>構成を確認し、許可された設定を選んで仮想テストを実行します。</p><div id="lab-list" class="lab-list"></div></section>
+    <section id="detail-view" hidden aria-labelledby="lab-title">
+      <p><a href="/labs">← Lab一覧へ戻る</a></p><h1 id="lab-title"></h1><p id="lab-description"></p><p id="lab-meta" class="metadata"></p><h2>学習目標</h2><ul id="objectives"></ul>
+      <section id="learning" class="learning-introduction" aria-labelledby="learning-title">
+        <h2 id="learning-title">このラボで学ぶこと</h2><p id="learning-introduction-text"></p><div id="service-roles" class="service-roles" aria-label="サービスの役割"></div>
+        <div class="learning-mode" role="tablist" aria-label="学び方を選ぶ"><button id="guided-mode" type="button" role="tab" aria-selected="true" aria-controls="guided-panel">ガイド付きで学ぶ</button><button id="free-mode" type="button" role="tab" aria-selected="false" aria-controls="free-panel">自由に試す</button></div>
+        <section id="guided-panel" class="guided-panel" role="tabpanel" aria-labelledby="guided-mode"><p id="stage-progress" class="stage-progress"></p><h3 id="stage-title" tabindex="-1"></h3><p id="stage-purpose"></p><section class="learning-question" aria-labelledby="stage-question-title"><h4 id="stage-question-title">実行前に考えること</h4><p id="stage-question"></p></section><p id="stage-setting" class="stage-setting"></p><button id="apply-stage" type="button" class="secondary-action"></button><p id="stage-run-note" class="stage-run-note"></p><section id="stage-after" class="stage-after" hidden aria-live="polite"><h4>この実験から分かること</h4><p id="stage-conclusion"></p><div class="learning-notes"><section><h5>観察ポイント</h5><ul id="stage-observations"></ul></section><section><h5>よくある誤解</h5><ul id="stage-misconceptions"></ul></section><section><h5>試験での判断ポイント</h5><ul id="stage-exam-points"></ul></section></div></section><button id="next-stage" type="button" class="primary-action" hidden></button></section>
+        <section id="free-panel" class="free-panel" role="tabpanel" aria-labelledby="free-mode" hidden><h3>自由に試す</h3><p>すべての設定を自由に組み合わせ、応答元と到達範囲の違いを観察できます。</p><button id="return-guided" type="button" class="secondary-action">ガイド付きで学ぶに戻る</button></section>
+      </section>
+      <section><h2>教材上の簡略化</h2><p>このラボはAWSの実際の挙動を、責任境界の学習用に簡略化しています。</p><details><summary>詳細を見る</summary><ul id="simplifications"></ul></details></section>
+      <section><h2>構成</h2><div id="topology" class="topology" aria-label="Topology"></div></section>
+      <section><h2>設定</h2><form id="controls"></form><div class="run-area"><button id="run" type="button" disabled>仮想テストを実行</button><p id="dirty" role="status" hidden>設定が変更されました。再実行してください。</p></div></section>
+      <section id="result" tabindex="-1" aria-live="polite" hidden><h2>仮想テスト結果</h2><section id="result-summary" class="result-summary-card" aria-labelledby="result-conclusion-title"><h3 id="result-conclusion-title"></h3><p id="result-conclusion"></p><dl id="result-facts" class="result-facts"></dl></section><section class="result-secondary" aria-labelledby="result-learning-title"><h3 id="result-learning-title">今回の結果を確認する</h3><p id="result-path"></p><p id="explanation"></p><h4>選択した設定</h4><ul id="applied"></ul><details class="result-details"><summary>リクエストの流れを見る</summary><ol id="events" class="timeline"></ol></details><details class="result-details"><summary>各サービスの状態を見る</summary><ul id="states" class="states"></ul></details></section><details class="technical-details"><summary>技術的な実行詳細を見る</summary><div id="technical-details"></div></details></section>
+    </section>
+  </main>
+  <noscript>この画面を利用するにはJavaScriptを有効にしてください。</noscript>
+  <script src="/labs/assets/learning-content.js"></script>
+  <script src="/labs/assets/labs.js"></script>
+</body>
+</html>

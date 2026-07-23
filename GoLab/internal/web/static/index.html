@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GoLab</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header class="site-header">
+    <a href="/" class="site-title">GoLab</a>
+    <span class="site-tagline">HTTP 通信経路ラボ</span>
+  </header>
+
+  <main class="main">
+    <div id="view-list" class="view">
+      <h1>シナリオ一覧</h1>
+      <div id="scenario-list" class="scenario-list">
+        <p class="loading">読み込み中...</p>
+      </div>
+    </div>
+
+    <div id="view-scenario" class="view hidden">
+      <button class="back-btn" onclick="showList()">← 一覧へ戻る</button>
+      <h1 id="sc-title"></h1>
+      <p id="sc-description" class="description"></p>
+      <div class="meta-row">
+        <span id="sc-difficulty" class="badge"></span>
+        <span id="sc-category" class="badge badge-category"></span>
+      </div>
+      <div class="goals-block">
+        <strong>学習目標</strong>
+        <ul id="sc-goals"></ul>
+      </div>
+
+      <section class="section">
+        <h2>構成ノード</h2>
+        <div id="sc-nodes" class="node-path"></div>
+      </section>
+
+      <section class="section">
+        <h2>結果を予測してください</h2>
+        <p class="predict-label">リクエストはどのノードで失敗 / 応答しますか？</p>
+        <div id="sc-choices" class="choices"></div>
+        <button id="run-btn" class="run-btn" onclick="runSimulation()" disabled>
+          疑似リクエスト実行
+        </button>
+      </section>
+
+      <section id="result-section" class="section hidden">
+        <h2>実行結果</h2>
+        <div id="result-verdict" class="verdict"></div>
+        <h3>タイムライン</h3>
+        <ol id="result-timeline" class="timeline"></ol>
+        <div id="result-explanation" class="explanation"></div>
+        <div id="cloud-mapping" class="cloud-mapping hidden">
+          <h3>クラウドでの対応例</h3>
+          <table id="cloud-table" class="cloud-table"></table>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>

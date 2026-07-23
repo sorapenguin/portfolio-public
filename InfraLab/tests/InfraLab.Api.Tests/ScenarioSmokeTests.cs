@@ -38,7 +38,7 @@ public sealed class ScenarioSmokeTests(PostgresFixture fixture) : IAsyncLifetime
             attempt = await SubmitAsync(client, attempt, "remediation", new SubmitRemediationRequest(remediation.Id, attempt.StateVersion, Guid.NewGuid().ToString("N")));
             Assert.Equal((int)ScenarioPhase.Verify, attempt.Phase);
 
-            var verificationIds = attempt.AvailableVerifications.Select(x => x.Id).ToArray();
+            var verificationIds = attempt.AvailableVerifications.Take(1).Select(x => x.Id).ToArray();
             Assert.NotEmpty(verificationIds);
             attempt = await SubmitAsync(client, attempt, "verification", new SubmitVerificationRequest(verificationIds, attempt.StateVersion, Guid.NewGuid().ToString("N")));
 
@@ -60,8 +60,10 @@ public sealed class ScenarioSmokeTests(PostgresFixture fixture) : IAsyncLifetime
     {
         var response = await client.PostAsJsonAsync($"/api/attempts/{attempt.Id}/{operation}", request);
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        var updated = await response.Content.ReadFromJsonAsync<PublicAttemptView>();
-        Assert.NotNull(updated);
-        return updated!;
+        var result = await response.Content.ReadFromJsonAsync<PublicAnswerResult>();
+        Assert.NotNull(result);
+        Assert.NotNull(result!.Attempt);
+        Assert.Contains(result.Outcome, new[] { "Correct", "Incorrect" });
+        return result.Attempt;
     }
 }

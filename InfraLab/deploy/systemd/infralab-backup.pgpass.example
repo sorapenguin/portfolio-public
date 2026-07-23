@@ -1,0 +1,2 @@
+# host:port:database:username:password -- replace all placeholders; mode 0600, owned by infralab-backup
+127.0.0.1:5432:REPLACE_WITH_INFRALAB_DATABASE_NAME:REPLACE_WITH_DEDICATED_BACKUP_ROLE:REPLACE_WITH_PASSWORD

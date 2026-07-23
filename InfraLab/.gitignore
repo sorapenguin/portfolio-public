@@ -14,6 +14,7 @@ coverage/
 # 秘密情報・環境変数
 .env
 .env.*
+!.env.example
 *.secrets
 appsettings.Production.json
 appsettings.Staging.json
@@ -33,7 +34,15 @@ Thumbs.db
 # ログ
 *.log
 
+# PostgreSQL logical backups (must remain outside the repository)
+*.dump
+*.dump.sha256
+
 # 除外しないもの（明示）
 # docs/       → 設計書は必ず追跡
 # content/    → シナリオ原稿は必ず追跡
 # **/.gitkeep → 空フォルダ保持用は追跡
+
+# 親リポジトリ .gitignore の Unity 向け *.csproj / *.sln 除外を上書き
+!*.csproj
+!*.slnx

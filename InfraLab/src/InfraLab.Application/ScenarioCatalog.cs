@@ -41,6 +41,12 @@ public sealed class ScenarioCatalog
         {
             issues.Add((0, new("DUPLICATE_SCENARIO_ID", "Scenario identifier is duplicated.")));
         }
+        foreach (var duplicate in scenarios.Where(x => x is not null)
+                     .GroupBy(x => x.Version.Id, StringComparer.Ordinal)
+                     .Where(x => string.IsNullOrWhiteSpace(x.Key) || x.Count() > 1))
+        {
+            issues.Add((0, new("DUPLICATE_SCENARIO_VERSION_ID", "Scenario version identifier is missing or duplicated.")));
+        }
 
         if (issues.Count > 0)
         {

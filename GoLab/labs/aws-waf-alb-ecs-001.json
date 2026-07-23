@@ -1,0 +1,34 @@
+{
+  "id": "aws-waf-alb-ecs-001",
+  "title": "WAFとALBの責任境界を理解する",
+  "description": "AWS WAF、Application Load Balancer、ECS Applicationの責任境界を観察します。",
+  "difficulty": "beginner",
+  "mode": "explore",
+  "provider": "aws",
+  "domain_id": "cloud",
+  "subcategory_ids": ["web-application-security", "load-balancing"],
+  "tags": ["waf", "alb", "ecs", "http-response"],
+  "engine": "http_path",
+  "mission": "Controlを変更して、クライアントが受け取るHTTPレスポンスの責任境界を確認してください。",
+  "learning_objectives": ["AWS WAF、ALB、ECS Applicationの責任境界を識別する。", "設定とHTTP結果の因果関係を観察する。"],
+  "topology": {
+    "nodes": [
+      {"id":"client","type":"client","display":{"label":"Client","service_name":"Client","simplification":"単一の仮想HTTPリクエストだけを送信します。"}},
+      {"id":"alb","type":"lb","display":{"label":"Application Load Balancer","service_name":"Application Load Balancer","simplification":"単一のlistenerと単純化したtarget状態だけを扱います。","attached_policies":[{"label":"AWS WAF Web ACL attached","node_id":"waf_policy","display_only":true}]}},
+      {"id":"ecs_app","type":"app","display":{"label":"ECS Application","service_name":"Amazon ECS","simplification":"単一アプリケーションのHTTP応答だけを扱います。"}}
+    ],
+    "edges": [{"from":"client","to":"alb"},{"from":"alb","to":"ecs_app"}]
+  },
+  "controls": [
+    {"id":"waf_action","label":"AWS WAF Rule Action","type":"single_choice","options":[{"id":"allow","label":"ALLOW"},{"id":"block","label":"BLOCK"}],"default_option_id":"allow","required":true},
+    {"id":"target_group_state","label":"ALB Target Group State","type":"single_choice","options":[{"id":"ready","label":"Ready Targets Available"},{"id":"empty_or_unused","label":"No Registered or Usable Targets"}],"default_option_id":"ready","required":true},
+    {"id":"application_outcome","label":"ECS Application Outcome","type":"single_choice","options":[{"id":"ok_200","label":"200 OK"},{"id":"not_found_404","label":"404 Not Found"},{"id":"error_500","label":"500 Internal Server Error"},{"id":"malformed_response","label":"Malformed Response"}],"default_option_id":"ok_200","required":true}
+  ],
+  "tests": [{"id":"client_to_application","label":"Client to Application Request","description":"クライアントからアプリケーションへの仮想HTTPリクエストを実行します。"}],
+  "simplifications": [
+    {"id":"waf-association","title":"WAF association","description":"AWS WAF Web ACLは保護対象リソースに関連付けます。GoLabでは論理評価Stageとして扱い、独立した物理Hopには表示しません。Rule Group、Managed Rule、IP Set、Rate-based Ruleを省略します。"},
+    {"id":"alb-target-state","title":"ALB target state","description":"Listener Rule、Target Group詳細、Health Check詳細、fail-openを含む全挙動は再現しません。Target Group Controlは既存Engineへ接続する教材上の簡略化です。"},
+    {"id":"ecs-service","title":"ECS service","description":"ECS Task Definition、ECS Service詳細、Deployment、Auto Scalingを再現しません。"},
+    {"id":"not-full-aws","title":"Not a full AWS simulation","description":"これは実AWSの完全な挙動を再現するものではありません。"}
+  ]
+}

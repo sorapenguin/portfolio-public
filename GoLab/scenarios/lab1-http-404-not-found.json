@@ -1,0 +1,53 @@
+{
+  "schemaVersion": "1",
+  "id": "lab1-http-404-not-found",
+  "title": "404 Not Found の発生地点",
+  "description": "クライアントからのリクエストに対し 404 Not Found が返ってきた。このレスポンスを返したのはどのノードか？",
+  "difficulty": "beginner",
+  "category": "lab1",
+  "learningGoals": [
+    "404 Not Found の意味を理解する",
+    "アプリケーションが返す 4xx と経路上のノードが返す 4xx の違いを区別できる",
+    "リクエストがどのノードまで届いたかを読む方法を知る"
+  ],
+  "nodes": [
+    { "id": "client", "type": "client", "label": "Client" },
+    { "id": "dns",    "type": "dns",    "label": "DNS" },
+    { "id": "edge",   "type": "edge",   "label": "Edge Cache" },
+    { "id": "lb",     "type": "lb",     "label": "Load Balancer" },
+    { "id": "proxy",  "type": "proxy",  "label": "Reverse Proxy" },
+    { "id": "app",    "type": "app",    "label": "Application" }
+  ],
+  "connections": [
+    { "from": "client", "to": "dns" },
+    { "from": "dns",    "to": "edge" },
+    { "from": "edge",   "to": "lb" },
+    { "from": "lb",     "to": "proxy" },
+    { "from": "proxy",  "to": "app" }
+  ],
+  "choices": [
+    { "id": "edge",  "label": "Edge Cache が返した (CDN レイヤー)" },
+    { "id": "lb",    "label": "Load Balancer が返した" },
+    { "id": "proxy", "label": "Reverse Proxy が返した" },
+    { "id": "app",   "label": "Application が返した (オリジン)" }
+  ],
+  "events": [
+    { "nodeId": "client", "delayMs": 0,    "description": "GET /articles/999 を送信", "status": "ok" },
+    { "nodeId": "dns",    "delayMs": 3,    "description": "DNS 解決成功 → 203.0.113.10", "status": "ok" },
+    { "nodeId": "edge",   "delayMs": 7,    "description": "キャッシュ miss → オリジンへ転送", "status": "ok" },
+    { "nodeId": "lb",     "delayMs": 9,    "description": "app-1 を選択", "status": "ok" },
+    { "nodeId": "proxy",  "delayMs": 12,   "description": "app-1 へ転送", "status": "ok" },
+    { "nodeId": "app",    "delayMs": 18,   "description": "DB 照会 → ID=999 は存在しない", "status": "error" },
+    { "nodeId": "client", "delayMs": 22,   "description": "404 Not Found 受信", "status": "error" }
+  ],
+  "expectedStatus": 404,
+  "failPoint": "app",
+  "reachedNodes": ["client", "dns", "edge", "lb", "proxy", "app"],
+  "explanation": "404 Not Found はリソースが見つからないことをオリジンのアプリケーションが返すレスポンスです。DNS・Edge・LB・Proxy はいずれも正常にリクエストを転送し、アプリケーションが DB を照会した結果 ID=999 が存在しないと判断して 404 を返しました。経路上の全ノードが到達済みであることがタイムラインから確認できます。",
+  "wrongExplanation": "このシナリオでは DNS 解決・Edge キャッシュ・LB・Reverse Proxy はすべて正常に動作しています。404 はリソースが存在しないことを意味し、オリジンのアプリケーションが DB を照会した結果として返すものです。CDN・LB・Proxy が 404 を返す場合は別の構成（設定ミス・バックエンド異常）が必要です。",
+  "cloudMapping": {
+    "edge":  "CloudFront / Azure CDN / Cloud CDN",
+    "lb":    "ALB / Azure Load Balancer / Cloud Load Balancing",
+    "proxy": "Nginx / Apache / AWS Nginx Ingress"
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "schema_version": 2,
+  "type": "core",
+  "id": "core-application-404-001",
+  "title": "Application HTTP 404",
+  "description": "ClientからApplicationまでの単一経路で、Node SettingsとHTTPレスポンスの関係を観察するシナリオです。",
+  "difficulty": "beginner",
+  "category": "error",
+  "learning_goals": [
+    "HTTP 404が通信経路のどのNodeで生成されたかを区別できる。",
+    "Applicationが設定されたHTTP Statusを生成する基本ルールを理解する。",
+    "HTTP Statusの種類とResponse Origin Nodeを混同しない。"
+  ],
+  "topology": {
+    "nodes": [
+      { "id": "client", "type": "client", "label": "Browser" },
+      { "id": "app", "type": "app", "label": "Application", "settings": { "response_delay_ms": 800, "response_type": "normal", "status_code": 404 } }
+    ],
+    "edges": [
+      { "from": "client", "to": "app" }
+    ]
+  },
+  "explanation": "Applicationのresponse_typeはnormalで、status_codeは404です。途中で別の終端条件は成立していないため、Applicationが404レスポンスを生成します。404はApplicationが正常に計算したHTTPレスポンスであり、GoLab Engineの失敗ではありません。",
+  "wrong_explanation": "Clientはレスポンスを受信するNodeであり、この構成では生成Nodeではありません。404という値だけで経路途中の障害Nodeが生成したと判断せず、設定値と成立するRuleからResponse Originを判断します。",
+  "cloud_concept_refs": []
+}

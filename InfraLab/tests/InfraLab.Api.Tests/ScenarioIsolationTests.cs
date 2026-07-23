@@ -69,7 +69,7 @@ public sealed class ScenarioIsolationTests(PostgresFixture fixture) : IAsyncLife
         completed = await ReachDiagnoseAsync(client, completed);
         completed = await SubmitAsync(client, completed, "diagnosis", new SubmitDiagnosisRequest(completed.AvailableDiagnoses[0].Id, completed.StateVersion, Guid.NewGuid().ToString("N")));
         completed = await SubmitAsync(client, completed, "remediation", new SubmitRemediationRequest(completed.AvailableRemediations[0].Id, completed.StateVersion, Guid.NewGuid().ToString("N")));
-        completed = await SubmitAsync(client, completed, "verification", new SubmitVerificationRequest(completed.AvailableVerifications.Select(x => x.Id).ToArray(), completed.StateVersion, Guid.NewGuid().ToString("N")));
+        completed = await SubmitAsync(client, completed, "verification", new SubmitVerificationRequest(completed.AvailableVerifications.Take(1).Select(x => x.Id).ToArray(), completed.StateVersion, Guid.NewGuid().ToString("N")));
         Assert.Equal((int)AttemptStatus.Completed, completed.Status);
 
         var after = await SnapshotAsync(untouched.Id);
@@ -96,9 +96,11 @@ public sealed class ScenarioIsolationTests(PostgresFixture fixture) : IAsyncLife
     {
         var response = await client.PostAsJsonAsync($"/api/attempts/{attempt.Id}/{operation}", request);
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        var updated = await response.Content.ReadFromJsonAsync<PublicAttemptView>();
-        Assert.NotNull(updated);
-        return updated!;
+        var result = await response.Content.ReadFromJsonAsync<PublicAnswerResult>();
+        Assert.NotNull(result);
+        Assert.NotNull(result!.Attempt);
+        Assert.Contains(result.Outcome, new[] { "Correct", "Incorrect" });
+        return result.Attempt;
     }
 
     private async Task<AttemptSnapshot> SnapshotAsync(Guid attemptId)

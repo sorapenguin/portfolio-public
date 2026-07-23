@@ -84,10 +84,12 @@ public interface IAttemptStore
     Task<Attempt> StartAsync(Guid anonymousSessionId, string scenarioId, string scenarioVersionId, CancellationToken cancellationToken = default);
     Task<Attempt?> FindAsync(Guid id, CancellationToken cancellationToken = default);
     Task<AttemptReviewData?> FindReviewDataAsync(Guid id, CancellationToken cancellationToken = default);
-    Task<AttemptMutationResult> MutateAsync(Guid attemptId, int expectedStateVersion, string idempotencyKey, string eventType, string? actionOrAnswerId, string requestValue, Func<AttemptState, AttemptState> mutate, Func<AttemptState, ScoreBreakdown?>? score = null, CancellationToken cancellationToken = default);
+    Task<AttemptMutationResult> MutateAsync(Guid attemptId, int expectedStateVersion, string idempotencyKey, string eventType, string? actionOrAnswerId, string requestValue, Func<AttemptState, AttemptState> mutate, Func<AttemptState, ScoreBreakdown?>? score = null, CancellationToken cancellationToken = default, MutationResultMetadata? resultMetadata = null);
 }
 
-public sealed record AttemptMutationResult(Attempt Attempt, bool WasReplay);
+public sealed record MutationResultMetadata(string Outcome, string? Feedback, string SelectedOptionId);
+public sealed record StoredMutationResult(Attempt Attempt, MutationResultMetadata? Metadata = null);
+public sealed record AttemptMutationResult(Attempt Attempt, bool WasReplay, MutationResultMetadata? Metadata = null);
 public sealed record AttemptReviewData(Attempt Attempt, string? VerificationId);
 
 public sealed record IdempotencyPayload(string EventType, string Value, int StateVersion);
@@ -139,7 +141,7 @@ public sealed class EfAttemptStore : IAttemptStore
         return new(ToDomain(entity), verificationId);
     }
 
-    public async Task<AttemptMutationResult> MutateAsync(Guid id, int expectedVersion, string key, string eventType, string? answerId, string requestValue, Func<AttemptState, AttemptState> mutate, Func<AttemptState, ScoreBreakdown?>? score = null, CancellationToken ct = default)
+    public async Task<AttemptMutationResult> MutateAsync(Guid id, int expectedVersion, string key, string eventType, string? answerId, string requestValue, Func<AttemptState, AttemptState> mutate, Func<AttemptState, ScoreBreakdown?>? score = null, CancellationToken ct = default, MutationResultMetadata? resultMetadata = null)
     {
         IDbContextTransaction? transaction = null;
         try
@@ -150,7 +152,7 @@ public sealed class EfAttemptStore : IAttemptStore
             {
                 EnsureSameRequest(replay, eventType, requestValue, expectedVersion);
                 await transaction.CommitAsync(ct);
-                return new(ReplayAttempt(replay), true);
+                return ReplayResult(replay);
             }
 
             // Serialize mutations for this Attempt across all server processes. A second check after
@@ -163,7 +165,7 @@ public sealed class EfAttemptStore : IAttemptStore
             {
                 EnsureSameRequest(replay, eventType, requestValue, expectedVersion);
                 await transaction.CommitAsync(ct);
-                return new(ReplayAttempt(replay), true);
+                return ReplayResult(replay);
             }
             if (entity.StateVersion != expectedVersion) throw new AttemptConcurrencyException();
             if (entity.Status != AttemptStatus.InProgress) throw new AttemptCompletedException();
@@ -199,9 +201,9 @@ public sealed class EfAttemptStore : IAttemptStore
                 PreviousStateVersion = current.StateVersion,
                 ResultStateVersion = next.StateVersion,
                 IdempotencyKey = key,
-                Outcome = "accepted",
+                Outcome = resultMetadata?.Outcome ?? "accepted",
                 PayloadJson = JsonSerializer.Serialize(new IdempotencyPayload(eventType, FingerprintValue(eventType, requestValue), expectedVersion), JsonOptions),
-                ResultAttemptJson = JsonSerializer.Serialize(result, JsonOptions),
+                ResultAttemptJson = JsonSerializer.Serialize(new StoredMutationResult(result, resultMetadata), JsonOptions),
                 CreatedAt = now
             });
 
@@ -209,7 +211,7 @@ public sealed class EfAttemptStore : IAttemptStore
             await db.SaveChangesAsync(ct);
             faults.ThrowAfterEventSavedBeforeCommit();
             await transaction.CommitAsync(ct);
-            return new(result, false);
+            return new(result, false, resultMetadata);
         }
         catch (DbUpdateConcurrencyException)
         {
@@ -219,7 +221,7 @@ public sealed class EfAttemptStore : IAttemptStore
             if (replay is not null)
             {
                 EnsureSameRequest(replay, eventType, requestValue, expectedVersion);
-                return new(ReplayAttempt(replay), true);
+                return ReplayResult(replay);
             }
             throw new AttemptConcurrencyException();
         }
@@ -235,7 +237,7 @@ public sealed class EfAttemptStore : IAttemptStore
             if (replay is not null)
             {
                 EnsureSameRequest(replay, eventType, requestValue, expectedVersion);
-                return new(ReplayAttempt(replay), true);
+                return ReplayResult(replay);
             }
             throw;
         }
@@ -263,7 +265,18 @@ public sealed class EfAttemptStore : IAttemptStore
         }
     }
 
-    private static Attempt ReplayAttempt(AttemptEventEntity replay) => JsonSerializer.Deserialize<Attempt>(replay.ResultAttemptJson, JsonOptions) ?? throw new InvalidOperationException("Invalid stored replay result.");
+    private static AttemptMutationResult ReplayResult(AttemptEventEntity replay)
+    {
+        using var document = JsonDocument.Parse(replay.ResultAttemptJson);
+        if (document.RootElement.TryGetProperty("attempt", out _))
+        {
+            var stored = JsonSerializer.Deserialize<StoredMutationResult>(replay.ResultAttemptJson, JsonOptions) ?? throw new InvalidOperationException("Invalid stored replay result.");
+            return new(stored.Attempt, true, stored.Metadata);
+        }
+        // Pre-answer-result events stored an Attempt directly and remain readable.
+        var attempt = JsonSerializer.Deserialize<Attempt>(replay.ResultAttemptJson, JsonOptions) ?? throw new InvalidOperationException("Invalid stored replay result.");
+        return new(attempt, true);
+    }
     private static void EnsureSameRequest(AttemptEventEntity replay, string eventType, string requestValue, int expectedVersion)
     {
         if (replay.EventType != eventType || replay.PreviousStateVersion != expectedVersion)

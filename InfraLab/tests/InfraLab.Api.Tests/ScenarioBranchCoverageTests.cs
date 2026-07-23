@@ -45,22 +45,32 @@ public sealed class ScenarioBranchCoverageTests(PostgresFixture fixture) : IAsyn
     }
 
     [Fact]
-    public async Task Every_diagnosis_candidate_can_complete_the_scenario()
+    public async Task Diagnosis_candidates_are_accepted_only_when_correct()
     {
         await using var factory = new TestServerFactory();
         using var client = factory.CreateClient();
 
         foreach (var scenario in await ScenariosAsync(client))
         {
+            var correctId = LoadScenario(scenario.Id).Version.Private.CorrectDiagnosisId;
             var template = await ReachDiagnoseAsync(client, scenario.Id);
             for (var index = 0; index < template.AvailableDiagnoses.Length; index++)
             {
                 var attempt = await ReachDiagnoseAsync(client, scenario.Id);
                 var beforeEvents = await EventCountAsync(attempt.Id);
+                var optionId = attempt.AvailableDiagnoses[index].Id;
                 var response = await client.PostAsJsonAsync($"/api/attempts/{attempt.Id}/diagnosis",
-                    new SubmitDiagnosisRequest(attempt.AvailableDiagnoses[index].Id, attempt.StateVersion, Guid.NewGuid().ToString("N")));
-                Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-                var remediating = await ReadAttemptAsync(response);
+                    new SubmitDiagnosisRequest(optionId, attempt.StateVersion, Guid.NewGuid().ToString("N")));
+                if (optionId != correctId)
+                {
+                    var answer = await ReadAnswerResultAsync(response);
+                    Assert.Equal("Incorrect", answer.Outcome); Assert.Equal(optionId, answer.SelectedOptionId); Assert.False(string.IsNullOrWhiteSpace(answer.Feedback));
+                    Assert.Equal((int)ScenarioPhase.Diagnose, answer.Attempt.Phase); Assert.Equal(attempt.StateVersion + 1, answer.Attempt.StateVersion); Assert.NotNull(answer.Attempt.IncorrectOptionIds); Assert.Contains(optionId, answer.Attempt.IncorrectOptionIds!); Assert.Empty(answer.Attempt.AvailableRemediations);
+                    Assert.Equal(beforeEvents + 1, await EventCountAsync(attempt.Id));
+                    continue;
+                }
+                var correct = await ReadAnswerResultAsync(response); Assert.Equal("Correct", correct.Outcome);
+                var remediating = correct.Attempt;
                 Assert.Equal((int)ScenarioPhase.Remediate, remediating.Phase);
                 Assert.Equal(attempt.StateVersion + 1, remediating.StateVersion);
                 Assert.Empty(remediating.AvailableDiagnoses);
@@ -72,32 +82,45 @@ public sealed class ScenarioBranchCoverageTests(PostgresFixture fixture) : IAsyn
     }
 
     [Fact]
-    public async Task Every_remediation_candidate_can_complete_the_scenario()
+    public async Task Remediation_candidates_are_accepted_only_when_correct()
     {
         await using var factory = new TestServerFactory();
         using var client = factory.CreateClient();
 
         foreach (var scenario in await ScenariosAsync(client))
         {
+            var definition = LoadScenario(scenario.Id);
+            var correctDiagnosisId = definition.Version.Private.CorrectDiagnosisId;
+            var correctRemediationId = definition.Version.Private.CorrectRemediationId;
             var diagnosed = await ReachDiagnoseAsync(client, scenario.Id);
-            var firstDiagnosis = diagnosed.AvailableDiagnoses[0];
-            var template = await SubmitAsync(client, diagnosed, "diagnosis", new SubmitDiagnosisRequest(firstDiagnosis.Id, diagnosed.StateVersion, Guid.NewGuid().ToString("N")));
-            for (var index = 0; index < template.AvailableRemediations.Length; index++)
-            {
-                diagnosed = await ReachDiagnoseAsync(client, scenario.Id);
-                var remediating = await SubmitAsync(client, diagnosed, "diagnosis", new SubmitDiagnosisRequest(diagnosed.AvailableDiagnoses[0].Id, diagnosed.StateVersion, Guid.NewGuid().ToString("N")));
-                var beforeEvents = await EventCountAsync(remediating.Id);
-                var response = await client.PostAsJsonAsync($"/api/attempts/{remediating.Id}/remediation",
-                    new SubmitRemediationRequest(remediating.AvailableRemediations[index].Id, remediating.StateVersion, Guid.NewGuid().ToString("N")));
-                Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-                var verifying = await ReadAttemptAsync(response);
-                Assert.Equal((int)ScenarioPhase.Verify, verifying.Phase);
-                Assert.Equal(remediating.StateVersion + 1, verifying.StateVersion);
-                Assert.Empty(verifying.AvailableRemediations);
-                Assert.Equal(beforeEvents + 1, await EventCountAsync(remediating.Id));
+            var template = await SubmitAsync(client, diagnosed, "diagnosis", new SubmitDiagnosisRequest(correctDiagnosisId, diagnosed.StateVersion, Guid.NewGuid().ToString("N")));
+            var incorrectOptionId = template.AvailableRemediations
+                .Select(option => option.Id)
+                .First(id => id != correctRemediationId && definition.Version.Private.RemediationHints.ContainsKey(id));
 
-                await CompleteFromVerifyAsync(client, verifying);
-            }
+            diagnosed = await ReachDiagnoseAsync(client, scenario.Id);
+            var remediating = await SubmitAsync(client, diagnosed, "diagnosis", new SubmitDiagnosisRequest(correctDiagnosisId, diagnosed.StateVersion, Guid.NewGuid().ToString("N")));
+            var beforeEvents = await EventCountAsync(remediating.Id);
+            var response = await client.PostAsJsonAsync($"/api/attempts/{remediating.Id}/remediation",
+                new SubmitRemediationRequest(incorrectOptionId, remediating.StateVersion, Guid.NewGuid().ToString("N")));
+            var answer = await ReadAnswerResultAsync(response);
+            Assert.Equal("Incorrect", answer.Outcome); Assert.Equal(incorrectOptionId, answer.SelectedOptionId); Assert.False(string.IsNullOrWhiteSpace(answer.Feedback));
+            Assert.Equal((int)ScenarioPhase.Remediate, answer.Attempt.Phase); Assert.Equal(remediating.StateVersion + 1, answer.Attempt.StateVersion); Assert.NotNull(answer.Attempt.IncorrectOptionIds); Assert.Contains(incorrectOptionId, answer.Attempt.IncorrectOptionIds!); Assert.Empty(answer.Attempt.AvailableVerifications);
+            Assert.Equal(beforeEvents + 1, await EventCountAsync(remediating.Id));
+
+            diagnosed = await ReachDiagnoseAsync(client, scenario.Id);
+            remediating = await SubmitAsync(client, diagnosed, "diagnosis", new SubmitDiagnosisRequest(correctDiagnosisId, diagnosed.StateVersion, Guid.NewGuid().ToString("N")));
+            beforeEvents = await EventCountAsync(remediating.Id);
+            response = await client.PostAsJsonAsync($"/api/attempts/{remediating.Id}/remediation",
+                new SubmitRemediationRequest(correctRemediationId, remediating.StateVersion, Guid.NewGuid().ToString("N")));
+            var correct = await ReadAnswerResultAsync(response); Assert.Equal("Correct", correct.Outcome);
+            var verifying = correct.Attempt;
+            Assert.Equal((int)ScenarioPhase.Verify, verifying.Phase);
+            Assert.Equal(remediating.StateVersion + 1, verifying.StateVersion);
+            Assert.Empty(verifying.AvailableRemediations);
+            Assert.Equal(beforeEvents + 1, await EventCountAsync(remediating.Id));
+
+            await CompleteFromVerifyAsync(client, verifying);
         }
     }
 
@@ -167,7 +190,14 @@ public sealed class ScenarioBranchCoverageTests(PostgresFixture fixture) : IAsyn
             new SubmitVerificationRequest(selection, verifying.StateVersion, Guid.NewGuid().ToString("N")));
         if (response.StatusCode == HttpStatusCode.OK)
         {
-            var completed = await ReadAttemptAsync(response);
+            var answer = await ReadAnswerResultAsync(response);
+            if (answer.Outcome == "Incorrect")
+            {
+                Assert.Equal(selection[0], answer.SelectedOptionId); Assert.False(string.IsNullOrWhiteSpace(answer.Feedback));
+                Assert.Equal((int)ScenarioPhase.Verify, answer.Attempt.Phase); Assert.NotEqual((int)AttemptStatus.Completed, answer.Attempt.Status); Assert.Equal(verifying.StateVersion + 1, answer.Attempt.StateVersion); Assert.NotNull(answer.Attempt.IncorrectOptionIds); Assert.Contains(selection[0], answer.Attempt.IncorrectOptionIds!); Assert.Equal(beforeEvents + 1, await EventCountAsync(verifying.Id));
+                return;
+            }
+            var completed = answer.Attempt;
             Assert.Equal((int)ScenarioPhase.Review, completed.Phase);
             Assert.Equal((int)AttemptStatus.Completed, completed.Status);
             Assert.Equal(verifying.StateVersion + 1, completed.StateVersion);
@@ -206,12 +236,18 @@ public sealed class ScenarioBranchCoverageTests(PostgresFixture fixture) : IAsyn
         var result = await client.GetFromJsonAsync<PublicAttemptResult>($"/api/attempts/{attemptId}/result");
         var review = await client.GetFromJsonAsync<PublicAttemptReview>($"/api/attempts/{attemptId}/review");
         Assert.NotNull(result); Assert.NotNull(review);
-        Assert.True(result!.Score.Diagnosis >= 0 && result.Score.Remediation >= 0 && result.Score.Verification >= 0 && result.Score.Investigation >= 0 && result.Score.Safety >= 0 && result.Score.Total >= 0);
-        Assert.Equal(result.Score.Diagnosis + result.Score.Remediation + result.Score.Verification + result.Score.Investigation + result.Score.Safety, result.Score.Total);
+        Assert.InRange(result!.Score.Diagnosis, 0, 30);
+        Assert.InRange(result.Score.Remediation, 0, 30);
+        Assert.InRange(result.Score.Verification, 0, 30);
+        Assert.Equal(10, result.Score.Investigation);
+        Assert.Equal(0, result.Score.Safety);
+        Assert.InRange(result.Score.Total, 0, 100);
+        Assert.Equal(result.Score.Diagnosis + result.Score.Remediation + result.Score.Verification + result.Score.Investigation, result.Score.Total);
         Assert.Equal(before.Score.Diagnosis, result.Score.Diagnosis);
         Assert.Equal(before.Score.Remediation, result.Score.Remediation);
         Assert.Equal(before.Score.Verification, result.Score.Verification);
         Assert.Equal(before.Score.Investigation, result.Score.Investigation);
+        Assert.Equal(0, before.Score.Safety);
         Assert.Equal(before.Score.Safety, result.Score.Safety);
         Assert.Equal(before.Score.Total, result.Score.Total);
         Assert.Equal(review!.Diagnosis!.IsCorrect, before.Score.Diagnosis > 0);
@@ -240,7 +276,7 @@ public sealed class ScenarioBranchCoverageTests(PostgresFixture fixture) : IAsyn
 
     private async Task<PublicAttemptView> CompleteFromVerifyAsync(HttpClient client, PublicAttemptView verifying)
     {
-        var completed = await SubmitAsync(client, verifying, "verification", new SubmitVerificationRequest(verifying.AvailableVerifications.Select(x => x.Id).ToArray(), verifying.StateVersion, Guid.NewGuid().ToString("N")));
+        var completed = await SubmitAsync(client, verifying, "verification", new SubmitVerificationRequest(verifying.AvailableVerifications.Take(1).Select(x => x.Id).ToArray(), verifying.StateVersion, Guid.NewGuid().ToString("N")));
         Assert.Equal((int)ScenarioPhase.Review, completed.Phase);
         Assert.Equal((int)AttemptStatus.Completed, completed.Status);
         await AssertCompletedInvariantsAsync(client, completed.Id);
@@ -271,7 +307,7 @@ public sealed class ScenarioBranchCoverageTests(PostgresFixture fixture) : IAsyn
     {
         var response = await client.PostAsJsonAsync($"/api/attempts/{attempt.Id}/{operation}", request);
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        return await ReadAttemptAsync(response);
+        return (await ReadAnswerResultAsync(response)).Attempt;
     }
 
     private static async Task<PublicAttemptView> ReadAttemptAsync(HttpResponseMessage response)
@@ -279,6 +315,19 @@ public sealed class ScenarioBranchCoverageTests(PostgresFixture fixture) : IAsyn
         var attempt = await response.Content.ReadFromJsonAsync<PublicAttemptView>();
         Assert.NotNull(attempt);
         return attempt!;
+    }
+
+    private static async Task<PublicAnswerResult> ReadAnswerResultAsync(HttpResponseMessage response)
+    {
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode); Assert.Equal("application/json", response.Content.Headers.ContentType!.MediaType);
+        var payload = await response.Content.ReadAsStringAsync();
+        foreach (var privateProperty in new[] { "requiredEvidenceIds", "correctDiagnosisId", "correctRemediationId", "correctVerificationId", "diagnosisHints", "remediationHints", "verificationHints", "diagnosisSuccessFeedback", "remediationSuccessFeedback", "verificationSuccessFeedback", "scenarioPrivate" })
+        {
+            Assert.DoesNotContain($"\"{privateProperty}\"", payload, StringComparison.OrdinalIgnoreCase);
+        }
+        var result = JsonSerializer.Deserialize<PublicAnswerResult>(payload, JsonOptions);
+        Assert.NotNull(result); Assert.NotNull(result!.Attempt); Assert.Contains(result.Outcome, new[] { "Correct", "Incorrect" }); Assert.False(string.IsNullOrWhiteSpace(result.SelectedOptionId));
+        return result;
     }
 
     private async Task<int> EventCountAsync(Guid id)
@@ -303,6 +352,12 @@ public sealed class ScenarioBranchCoverageTests(PostgresFixture fixture) : IAsyn
         Assert.NotNull(scenarios);
         Assert.NotEmpty(scenarios!);
         return scenarios!;
+    }
+
+    private static Scenario LoadScenario(string id)
+    {
+        var path = Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "content", "lpic1", $"{id}.json");
+        return JsonSerializer.Deserialize<Scenario>(File.ReadAllText(path), JsonOptions) ?? throw new InvalidOperationException();
     }
 
     private static IEnumerable<IReadOnlyList<string>> Selections(string[] candidates)

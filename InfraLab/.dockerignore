@@ -1,0 +1,35 @@
+# Build outputs — never needed in Docker context
+bin/
+obj/
+.vs/
+TestResults/
+coverage/
+publish/
+
+# Secrets — must never enter image or build context
+.env
+.env.*
+*.secrets
+appsettings.Production.json
+appsettings.Staging.json
+
+# Test projects — not needed to build the runtime image
+tests/
+
+# Logs
+*.log
+
+# OS artifacts
+**/.DS_Store
+**/Thumbs.db
+**/*.user
+**/*.suo
+
+# Git
+.git/
+.gitignore
+
+# docs — informational only, not needed in image
+docs/
+
+# NOTE: content/ and src/ are intentionally kept (COPY'd in Dockerfile)

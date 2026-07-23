@@ -1,6 +1,8 @@
 using System.Net;
 using System.Text;
+using InfraLab.Client.Models;
 using InfraLab.Client.Services;
+using InfraLab.Contracts;
 
 namespace InfraLab.Api.Tests;
 
@@ -20,6 +22,93 @@ public sealed class InfraLabApiClientTests
         var exception = await Assert.ThrowsAsync<ApiRequestException>(() => CreateClient(HttpStatusCode.UnprocessableEntity).GetAttemptAsync(Guid.NewGuid(), CancellationToken.None));
 
         Assert.Equal(HttpStatusCode.UnprocessableEntity, exception.StatusCode);
+    }
+
+    [Fact]
+    public async Task Unprocessable_entity_response_exposes_safe_detail_for_learning_feedback()
+    {
+        var exception = await Assert.ThrowsAsync<ApiRequestException>(() => CreateClient(HttpStatusCode.UnprocessableEntity, "{\"detail\":\"Evidenceを見直してください。\"}").GetAttemptAsync(Guid.NewGuid(), CancellationToken.None));
+
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, exception.StatusCode);
+        Assert.Equal("Evidenceを見直してください。", exception.Detail);
+    }
+
+    [Fact]
+    public void Manual_command_toggle_is_shown_only_for_supported_scenarios_in_investigation()
+    {
+        var hidden = Attempt(phase: 1, supportsCommandInput: false);
+        var visible = Attempt(phase: 1, supportsCommandInput: true);
+
+        Assert.False(AttemptPresentation.ShowsManualCommandToggle(hidden));
+        Assert.True(AttemptPresentation.ShowsManualCommandToggle(visible));
+        Assert.False(AttemptPresentation.ShowsManualCommandToggle(Attempt(phase: 2, supportsCommandInput: true)));
+    }
+
+    [Fact]
+    public void Investigation_guidance_and_advance_labels_are_explicit()
+    {
+        Assert.Contains("調査操作", AttemptPresentation.InvestigationGuidance(AttemptDisplayPhase.Investigation));
+        Assert.Equal("診断へ進む", AttemptPresentation.AdvanceLabel(AttemptDisplayPhase.Diagnosis));
+        Assert.Equal("対処へ進む", AttemptPresentation.AdvanceLabel(AttemptDisplayPhase.Remediation));
+        Assert.Equal("復旧確認へ進む", AttemptPresentation.AdvanceLabel(AttemptDisplayPhase.Verification));
+    }
+
+    [Fact]
+    public void Pending_diagnosis_transition_changes_only_the_displayed_phase()
+    {
+        var deferred = AttemptPresentation.DeferTransition(AttemptDisplayPhase.Investigation, serverPhase: 2);
+
+        Assert.Equal(AttemptDisplayPhase.Investigation, deferred.DisplayPhase);
+        Assert.Equal(AttemptDisplayPhase.Diagnosis, deferred.PendingPhase);
+        Assert.False(AttemptPresentation.ShowsPhase(deferred.DisplayPhase, deferred.PendingPhase, AttemptDisplayPhase.Diagnosis));
+
+        var advanced = AttemptPresentation.AdvancePendingPhase(deferred.DisplayPhase, deferred.PendingPhase);
+        Assert.Equal(AttemptDisplayPhase.Diagnosis, advanced.DisplayPhase);
+        Assert.Null(advanced.PendingPhase);
+        Assert.True(AttemptPresentation.ShowsPhase(advanced.DisplayPhase, advanced.PendingPhase, AttemptDisplayPhase.Diagnosis));
+        Assert.False(AttemptPresentation.ShowsInvestigation(advanced.DisplayPhase));
+    }
+
+    [Fact]
+    public void Server_phase_is_used_as_display_phase_on_page_reload()
+    {
+        var loaded = AttemptPresentation.ForServerPhase(2);
+
+        Assert.Equal(AttemptDisplayPhase.Diagnosis, loaded.DisplayPhase);
+        Assert.Null(loaded.PendingPhase);
+        Assert.True(AttemptPresentation.ShowsPhase(loaded.DisplayPhase, loaded.PendingPhase, AttemptDisplayPhase.Diagnosis));
+    }
+
+    [Fact]
+    public void Enum_values_match_server_phase_and_phase_bar_order()
+    {
+        Assert.Equal(new[] { AttemptDisplayPhase.Investigation, AttemptDisplayPhase.Diagnosis, AttemptDisplayPhase.Remediation, AttemptDisplayPhase.Verification, AttemptDisplayPhase.Review }, AttemptPresentation.PhaseOrder);
+        Assert.Equal(AttemptDisplayPhase.Investigation, AttemptPresentation.FromServerPhase(0));
+        Assert.Equal(AttemptDisplayPhase.Investigation, AttemptPresentation.FromServerPhase(1));
+        Assert.Equal(AttemptDisplayPhase.Diagnosis, AttemptPresentation.FromServerPhase(2));
+        Assert.Equal(AttemptDisplayPhase.Remediation, AttemptPresentation.FromServerPhase(3));
+        Assert.Equal(AttemptDisplayPhase.Verification, AttemptPresentation.FromServerPhase(4));
+        Assert.Equal(AttemptDisplayPhase.Review, AttemptPresentation.FromServerPhase(5));
+    }
+
+    [Fact]
+    public void Diagnosis_advance_is_enabled_only_for_investigation_with_server_readiness()
+    {
+        Assert.False(AttemptPresentation.CanAdvanceToDiagnosis(Attempt(phase: 1, supportsCommandInput: false)));
+        Assert.False(AttemptPresentation.CanAdvanceToDiagnosis(Attempt(phase: 2, supportsCommandInput: false) with { CanAdvanceToDiagnosis = true }));
+
+        var answerable = Attempt(phase: 1, supportsCommandInput: false) with
+        {
+            CanAdvanceToDiagnosis = true
+        };
+        Assert.True(AttemptPresentation.CanAdvanceToDiagnosis(answerable));
+    }
+
+    [Fact]
+    public void Verification_selection_mode_is_a_public_display_capability_only()
+    {
+        Assert.False(AttemptPresentation.IsSingleVerification(Attempt(phase: 4, supportsCommandInput: false)));
+        Assert.True(AttemptPresentation.IsSingleVerification(Attempt(phase: 4, supportsCommandInput: false) with { VerificationSelectionMode = 1 }));
     }
 
     [Fact]
@@ -76,6 +165,30 @@ public sealed class InfraLabApiClientTests
     }
 
     [Fact]
+    public async Task Start_attempt_failure_preserves_status_code_without_deserializing_error_body()
+    {
+        var client = CreateClient(HttpStatusCode.InternalServerError, "<html>database unavailable</html>");
+
+        var exception = await Assert.ThrowsAsync<ApiRequestException>(() => client.StartAttemptAsync("scenario-1", CancellationToken.None));
+
+        Assert.Equal(HttpStatusCode.InternalServerError, exception.StatusCode);
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.UnprocessableEntity)]
+    [InlineData(HttpStatusCode.InternalServerError)]
+    public async Task Submit_verification_failure_preserves_status_code(HttpStatusCode statusCode)
+    {
+        var exception = await Assert.ThrowsAsync<ApiRequestException>(() =>
+            CreateClient(statusCode, "<html>error</html>").SubmitVerificationAsync(
+                Guid.NewGuid(),
+                new InfraLab.Contracts.SubmitVerificationRequest(["public-verification-id"], 4, Guid.NewGuid().ToString("N")),
+                CancellationToken.None));
+
+        Assert.Equal(statusCode, exception.StatusCode);
+    }
+
+    [Fact]
     public async Task Get_attempt_review_uses_review_route_and_deserializes_public_dto()
     {
         var attemptId = Guid.NewGuid();
@@ -114,6 +227,9 @@ public sealed class InfraLabApiClientTests
         {
             BaseAddress = new Uri("http://localhost/")
         });
+
+    private static PublicAttemptView Attempt(int phase, bool supportsCommandInput) =>
+        new(Guid.NewGuid(), "scenario", "title", [], 0, phase, 0, [], [], [], [], [], [], supportsCommandInput);
 
     private sealed class StubHandler(Func<HttpResponseMessage> createResponse) : HttpMessageHandler
     {

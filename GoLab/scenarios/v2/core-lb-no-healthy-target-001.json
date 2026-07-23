@@ -1,0 +1,28 @@
+{
+  "schema_version": 2,
+  "type": "core",
+  "id": "core-lb-no-healthy-target-001",
+  "title": "Load Balancer No Healthy Target",
+  "description": "Client、Load Balancer、Applicationの単一経路で、転送先の設定値が通信の進み方へ与える影響を観察するシナリオです。",
+  "difficulty": "beginner",
+  "category": "availability",
+  "learning_goals": [
+    "healthy_targetsの設定値からLoad Balancerの転送可否を判断できる。",
+    "Applicationが正常な設定でも、Applicationへ到達しない場合があることを理解する。",
+    "503を生成したNodeと、到達しなかった後段Nodeを区別できる。"
+  ],
+  "topology": {
+    "nodes": [
+      { "id": "client", "type": "client", "label": "Browser" },
+      { "id": "lb", "type": "lb", "label": "Load Balancer", "settings": { "healthy_targets": 0 } },
+      { "id": "app", "type": "app", "label": "Application", "settings": { "response_delay_ms": 1000, "response_type": "normal", "status_code": 200 } }
+    ],
+    "edges": [
+      { "from": "client", "to": "lb" },
+      { "from": "lb", "to": "app" }
+    ]
+  },
+  "explanation": "Load Balancerのhealthy_targetsは0で、転送可能なApplicationがありません。そのためApplicationの200設定は今回使用されず、Load Balancerが503レスポンスを生成します。Applicationはnot_reachedです。",
+  "wrong_explanation": "Applicationに200が設定されていても、到達しなければApplicationはレスポンスを生成しません。設定された最終NodeのStatusだけでなく、経路途中の終端条件を先に確認します。healthy_targets=0は通信をLoad Balancerで終了させます。",
+  "cloud_concept_refs": []
+}

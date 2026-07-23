@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
 using InfraLab.Contracts;
 using InfraLab.Domain;
 using InfraLab.Infrastructure;
@@ -10,6 +11,8 @@ namespace InfraLab.Api.Tests;
 [Collection("PostgreSQL")]
 public sealed class MutationContractTests(PostgresFixture fixture) : IAsyncLifetime
 {
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+
     public Task InitializeAsync() => fixture.ResetAsync();
     public Task DisposeAsync() => Task.CompletedTask;
 
@@ -43,6 +46,10 @@ public sealed class MutationContractTests(PostgresFixture fixture) : IAsyncLifet
             var value = ValidValue(mutation, attempt);
             var success = await SendAsync(client, attempt.Id, mutation, attempt, value, Guid.NewGuid().ToString("N"), attempt.StateVersion);
             Assert.Equal(HttpStatusCode.OK, success.StatusCode);
+            if (IsAnswerMutation(mutation))
+                await ReadCorrectAnswerAttemptAsync(success, mutation, attempt, value);
+            else
+                await ReadAttemptAsync(success);
             var before = await SnapshotAsync(attempt.Id);
             var rejectedKey = Guid.NewGuid().ToString("N");
             var response = await SendAsync(client, attempt.Id, mutation, attempt, value, rejectedKey, attempt.StateVersion);
@@ -53,31 +60,81 @@ public sealed class MutationContractTests(PostgresFixture fixture) : IAsyncLifet
     }
 
     [Fact]
-    public async Task Same_key_and_same_request_replays_original_response_without_new_event()
+    public async Task Initial_incorrect_diagnosis_is_persisted_as_mutation_with_answer_result()
     {
         await using var factory = new TestServerFactory();
         using var client = factory.CreateClient();
-        foreach (var mutation in Mutations)
-        {
-            var attempt = await PrepareAsync(client, mutation);
-            var value = ValidValue(mutation, attempt);
-            var key = Guid.NewGuid().ToString("N");
-            var first = await SendAsync(client, attempt.Id, mutation, attempt, value, key, attempt.StateVersion);
-            var firstResult = await first.Content.ReadFromJsonAsync<PublicAttemptView>();
-            var beforeReplay = await SnapshotAsync(attempt.Id);
-            var replay = await SendAsync(client, attempt.Id, mutation, attempt, value, key, attempt.StateVersion);
-            var replayResult = await replay.Content.ReadFromJsonAsync<PublicAttemptView>();
-            Assert.Equal(HttpStatusCode.OK, first.StatusCode);
-            Assert.Equal(HttpStatusCode.OK, replay.StatusCode);
-            Assert.NotNull(firstResult);
-            Assert.NotNull(replayResult);
-            Assert.Equal(firstResult.Id, replayResult.Id);
-            Assert.Equal(firstResult.Phase, replayResult.Phase);
-            Assert.Equal(firstResult.Status, replayResult.Status);
-            Assert.Equal(firstResult.StateVersion, replayResult.StateVersion);
-            Assert.Equal(firstResult.ExecutedActions.Order(), replayResult.ExecutedActions.Order());
-            await AssertUnchangedAsync(attempt.Id, key, beforeReplay, requireKey: true);
-        }
+        var attempt = await PrepareAsync(client, "diagnosis");
+        const string optionId = "nginx-upstream";
+        var key = Guid.NewGuid().ToString("N");
+        var beforeEvents = await EventCountAsync(attempt.Id);
+
+        var response = await SendAsync(client, attempt.Id, "diagnosis", attempt, optionId, key, attempt.StateVersion);
+        var result = await ReadAnswerResultAsync(response);
+
+        Assert.Equal("Incorrect", result.Outcome);
+        Assert.Equal(optionId, result.SelectedOptionId);
+        Assert.False(string.IsNullOrWhiteSpace(result.Feedback));
+        Assert.Equal(attempt.StateVersion + 1, result.Attempt.StateVersion);
+        Assert.Equal((int)ScenarioPhase.Diagnose, result.Attempt.Phase);
+        Assert.NotNull(result.Attempt.IncorrectOptionIds);
+        Assert.Contains(optionId, result.Attempt.IncorrectOptionIds!);
+        Assert.Equal(beforeEvents + 1, await EventCountAsync(attempt.Id));
+
+        var storedEvent = await EventForKeyAsync(attempt.Id, key);
+        Assert.Equal("diagnosis", storedEvent.EventType);
+        Assert.Equal(result.Attempt.StateVersion, storedEvent.ResultStateVersion);
+        var stored = JsonSerializer.Deserialize<StoredMutationResult>(storedEvent.ResultAttemptJson, JsonOptions);
+        Assert.NotNull(stored);
+        Assert.NotNull(stored!.Metadata);
+        Assert.Equal("Incorrect", stored.Metadata!.Outcome);
+        Assert.Equal(optionId, stored.Metadata.SelectedOptionId);
+        Assert.Equal(result.Feedback, stored.Metadata.Feedback);
+        Assert.Equal(result.Attempt.StateVersion, stored.Attempt.State.StateVersion);
+        Assert.Equal((ScenarioPhase)result.Attempt.Phase, stored.Attempt.State.Phase);
+    }
+
+    [Fact]
+    public async Task Same_key_and_same_incorrect_diagnosis_replays_original_answer_result_without_new_event()
+    {
+        await using var factory = new TestServerFactory();
+        using var client = factory.CreateClient();
+        var attempt = await PrepareAsync(client, "diagnosis");
+        const string optionId = "nginx-upstream";
+        var key = Guid.NewGuid().ToString("N");
+
+        var first = await ReadAnswerResultAsync(await SendAsync(client, attempt.Id, "diagnosis", attempt, optionId, key, attempt.StateVersion));
+        var beforeReplay = await SnapshotAsync(attempt.Id);
+        var replay = await ReadAnswerResultAsync(await SendAsync(client, attempt.Id, "diagnosis", attempt, optionId, key, attempt.StateVersion));
+
+        Assert.Equal("Incorrect", first.Outcome); Assert.Equal(first.Outcome, replay.Outcome);
+        Assert.Equal(first.SelectedOptionId, replay.SelectedOptionId);
+        Assert.Equal(first.Feedback, replay.Feedback);
+        Assert.Equal(first.Attempt.Id, replay.Attempt.Id);
+        Assert.Equal(first.Attempt.StateVersion, replay.Attempt.StateVersion);
+        Assert.Equal(first.Attempt.Phase, replay.Attempt.Phase);
+        Assert.Equal(first.Attempt.IncorrectOptionIds, replay.Attempt.IncorrectOptionIds);
+        await AssertUnchangedAsync(attempt.Id, key, beforeReplay, requireKey: true);
+    }
+
+    [Fact]
+    public async Task Previously_incorrect_diagnosis_with_new_key_returns_422_without_persistence()
+    {
+        await using var factory = new TestServerFactory();
+        using var client = factory.CreateClient();
+        var attempt = await PrepareAsync(client, "diagnosis");
+        const string optionId = "nginx-upstream";
+        var firstKey = Guid.NewGuid().ToString("N");
+        var first = await ReadAnswerResultAsync(await SendAsync(client, attempt.Id, "diagnosis", attempt, optionId, firstKey, attempt.StateVersion));
+        var beforeRejected = await SnapshotAsync(attempt.Id);
+        var rejectedKey = Guid.NewGuid().ToString("N");
+
+        var response = await SendAsync(client, attempt.Id, "diagnosis", first.Attempt, optionId, rejectedKey, first.Attempt.StateVersion);
+
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+        var detail = await response.Content.ReadAsStringAsync();
+        Assert.Contains("already", detail, StringComparison.OrdinalIgnoreCase);
+        await AssertUnchangedAsync(attempt.Id, rejectedKey, beforeRejected);
     }
 
     [Fact]
@@ -90,7 +147,12 @@ public sealed class MutationContractTests(PostgresFixture fixture) : IAsyncLifet
             var attempt = await PrepareAsync(client, mutation);
             var value = ValidValue(mutation, attempt);
             var key = Guid.NewGuid().ToString("N");
-            Assert.Equal(HttpStatusCode.OK, (await SendAsync(client, attempt.Id, mutation, attempt, value, key, attempt.StateVersion)).StatusCode);
+            var initial = await SendAsync(client, attempt.Id, mutation, attempt, value, key, attempt.StateVersion);
+            Assert.Equal(HttpStatusCode.OK, initial.StatusCode);
+            if (IsAnswerMutation(mutation))
+                await ReadCorrectAnswerAttemptAsync(initial, mutation, attempt, value);
+            else
+                await ReadAttemptAsync(initial);
             var before = await SnapshotAsync(attempt.Id);
             var differentPayload = await SendAsync(client, attempt.Id, mutation, attempt, DifferentValue(mutation, value), key, attempt.StateVersion);
             var differentVersion = await SendAsync(client, attempt.Id, mutation, attempt, value, key, attempt.StateVersion + 1);
@@ -163,11 +225,18 @@ public sealed class MutationContractTests(PostgresFixture fixture) : IAsyncLifet
         {
             foreach (var action in new[] { "app-status", "app-journal", "unit-cat", "ls-permissions" })
                 attempt = await ReadAttemptAsync(await SendAsync(client, attempt.Id, "action", attempt, action, Guid.NewGuid().ToString("N"), attempt.StateVersion));
+            attempt = await ReadAttemptAsync(await client.PostAsJsonAsync($"/api/attempts/{attempt.Id}/advance-to-diagnosis", new AdvanceToDiagnosisRequest(attempt.StateVersion, Guid.NewGuid().ToString("N"))));
         }
         if (requiredPhase >= 3)
-            attempt = await ReadAttemptAsync(await SendAsync(client, attempt.Id, "diagnosis", attempt, ValidValue("diagnosis", attempt), Guid.NewGuid().ToString("N"), attempt.StateVersion));
+        {
+            var optionId = ValidValue("diagnosis", attempt);
+            attempt = await ReadCorrectAnswerAttemptAsync(await SendAsync(client, attempt.Id, "diagnosis", attempt, optionId, Guid.NewGuid().ToString("N"), attempt.StateVersion), "diagnosis", attempt, optionId);
+        }
         if (requiredPhase >= 4)
-            attempt = await ReadAttemptAsync(await SendAsync(client, attempt.Id, "remediation", attempt, ValidValue("remediation", attempt), Guid.NewGuid().ToString("N"), attempt.StateVersion));
+        {
+            var optionId = ValidValue("remediation", attempt);
+            attempt = await ReadCorrectAnswerAttemptAsync(await SendAsync(client, attempt.Id, "remediation", attempt, optionId, Guid.NewGuid().ToString("N"), attempt.StateVersion), "remediation", attempt, optionId);
+        }
         return attempt;
     }
 
@@ -181,7 +250,7 @@ public sealed class MutationContractTests(PostgresFixture fixture) : IAsyncLifet
         _ => throw new ArgumentOutOfRangeException(nameof(mutation))
     };
 
-    private static string DifferentValue(string mutation, string value) => mutation switch { "command" => value + " ", "verification" => "__first__", _ => "different-value" };
+    private static string DifferentValue(string mutation, string value) => mutation switch { "command" => value + " ", "verification" => "__second__", _ => "different-value" };
 
     private static Task<HttpResponseMessage> SendAsync(HttpClient client, Guid id, string mutation, PublicAttemptView attempt, string? value, string key, int stateVersion) => mutation switch
     {
@@ -189,7 +258,7 @@ public sealed class MutationContractTests(PostgresFixture fixture) : IAsyncLifet
         "command" => client.PostAsJsonAsync($"/api/attempts/{id}/commands", new ActionRequest(null, value, stateVersion, key)),
         "diagnosis" => client.PostAsJsonAsync($"/api/attempts/{id}/diagnosis", new SubmitDiagnosisRequest(value!, stateVersion, key)),
         "remediation" => client.PostAsJsonAsync($"/api/attempts/{id}/remediation", new SubmitRemediationRequest(value!, stateVersion, key)),
-        "verification" => client.PostAsJsonAsync($"/api/attempts/{id}/verification", new SubmitVerificationRequest(value == "__all__" ? attempt.AvailableVerifications.Select(x => x.Id).ToArray() : value == "__first__" ? [attempt.AvailableVerifications[0].Id] : value is null ? null! : [value], stateVersion, key)),
+        "verification" => client.PostAsJsonAsync($"/api/attempts/{id}/verification", new SubmitVerificationRequest(value == "__all__" ? [attempt.AvailableVerifications[0].Id] : value == "__first__" ? [attempt.AvailableVerifications[0].Id] : value == "__second__" ? [attempt.AvailableVerifications[1].Id] : value is null ? null! : [value], stateVersion, key)),
         _ => throw new ArgumentOutOfRangeException(nameof(mutation))
     };
 
@@ -213,11 +282,63 @@ public sealed class MutationContractTests(PostgresFixture fixture) : IAsyncLifet
         return await response.Content.ReadFromJsonAsync<PublicAttemptView>() ?? throw new InvalidOperationException();
     }
 
+    private static async Task<PublicAnswerResult> ReadAnswerResultAsync(HttpResponseMessage response)
+    {
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("application/json", response.Content.Headers.ContentType!.MediaType);
+        var payload = await response.Content.ReadAsStringAsync();
+        foreach (var forbidden in new[] { "requiredEvidenceIds", "correctDiagnosisId", "correctRemediationId", "correctVerificationId", "diagnosisHints", "remediationHints", "verificationHints", "diagnosisSuccessFeedback", "remediationSuccessFeedback", "verificationSuccessFeedback", "scenarioPrivate" })
+            Assert.DoesNotContain($"\"{forbidden}\"", payload, StringComparison.OrdinalIgnoreCase);
+        var result = JsonSerializer.Deserialize<PublicAnswerResult>(payload, JsonOptions);
+        Assert.NotNull(result);
+        Assert.NotNull(result!.Attempt);
+        Assert.Contains(result.Outcome, new[] { "Correct", "Incorrect" });
+        Assert.False(string.IsNullOrWhiteSpace(result.SelectedOptionId));
+        return result;
+    }
+
+    private static bool IsAnswerMutation(string mutation) => mutation is "diagnosis" or "remediation" or "verification";
+
+    private static async Task<PublicAttemptView> ReadCorrectAnswerAttemptAsync(HttpResponseMessage response, string mutation, PublicAttemptView before, string submittedValue)
+    {
+        var result = await ReadAnswerResultAsync(response);
+        var selectedOptionId = mutation == "verification" ? before.AvailableVerifications[0].Id : submittedValue;
+        var nextPhase = mutation switch
+        {
+            "diagnosis" => ScenarioPhase.Remediate,
+            "remediation" => ScenarioPhase.Verify,
+            "verification" => ScenarioPhase.Review,
+            _ => throw new ArgumentOutOfRangeException(nameof(mutation))
+        };
+        Assert.Equal("Correct", result.Outcome);
+        Assert.Equal(selectedOptionId, result.SelectedOptionId);
+        Assert.Equal(before.StateVersion + 1, result.Attempt.StateVersion);
+        Assert.Equal((int)nextPhase, result.Attempt.Phase);
+        return result.Attempt;
+    }
+
     private async Task<Snapshot> SnapshotAsync(Guid id)
     {
         await using var db = fixture.CreateContext();
         var attempt = await db.Attempts.AsNoTracking().SingleAsync(x => x.Id == id);
-        return new(attempt.StateJson, attempt.StateVersion, attempt.Status, attempt.ScoreJson, await db.AttemptEvents.CountAsync(x => x.AttemptId == id));
+        var resultAttemptJson = await db.AttemptEvents.AsNoTracking()
+            .Where(x => x.AttemptId == id)
+            .OrderBy(x => x.Sequence)
+            .Select(x => x.ResultAttemptJson)
+            .ToArrayAsync();
+        return new(attempt.StateJson, attempt.StateVersion, attempt.Status, attempt.ScoreJson, resultAttemptJson);
+    }
+
+    private async Task<int> EventCountAsync(Guid id)
+    {
+        await using var db = fixture.CreateContext();
+        return await db.AttemptEvents.CountAsync(x => x.AttemptId == id);
+    }
+
+    private async Task<AttemptEventEntity> EventForKeyAsync(Guid id, string key)
+    {
+        await using var db = fixture.CreateContext();
+        return await db.AttemptEvents.AsNoTracking().SingleAsync(x => x.AttemptId == id && x.IdempotencyKey == key);
     }
 
     private async Task AssertUnchangedAsync(Guid id, string key, Snapshot before, bool requireKey = false)
@@ -228,7 +349,12 @@ public sealed class MutationContractTests(PostgresFixture fixture) : IAsyncLifet
         Assert.Equal(before.StateVersion, attempt.StateVersion);
         Assert.Equal(before.Status, attempt.Status);
         Assert.Equal(before.ScoreJson, attempt.ScoreJson);
-        Assert.Equal(before.EventCount, await db.AttemptEvents.CountAsync(x => x.AttemptId == id));
+        var resultAttemptJson = await db.AttemptEvents.AsNoTracking()
+            .Where(x => x.AttemptId == id)
+            .OrderBy(x => x.Sequence)
+            .Select(x => x.ResultAttemptJson)
+            .ToArrayAsync();
+        Assert.Equal(before.ResultAttemptJson, resultAttemptJson);
         Assert.Equal(requireKey, await db.AttemptEvents.AnyAsync(x => x.AttemptId == id && x.IdempotencyKey == key));
     }
 
@@ -239,5 +365,5 @@ public sealed class MutationContractTests(PostgresFixture fixture) : IAsyncLifet
             Assert.DoesNotContain(forbidden, body, StringComparison.OrdinalIgnoreCase);
     }
 
-    private sealed record Snapshot(string StateJson, int StateVersion, AttemptStatus Status, string? ScoreJson, int EventCount);
+    private sealed record Snapshot(string StateJson, int StateVersion, AttemptStatus Status, string? ScoreJson, string[] ResultAttemptJson);
 }

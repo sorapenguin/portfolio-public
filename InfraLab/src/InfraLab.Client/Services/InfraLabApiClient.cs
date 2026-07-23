@@ -49,28 +49,34 @@ public sealed class InfraLabApiClient(HttpClient http)
         return await ReadAsync<PublicAttemptView>(response, ct);
     }
 
-    public async Task<PublicAttemptView> SubmitDiagnosisAsync(Guid attemptId, SubmitDiagnosisRequest request, CancellationToken ct = default)
+    public async Task<PublicAttemptView> AdvanceToDiagnosisAsync(Guid attemptId, AdvanceToDiagnosisRequest request, CancellationToken ct = default)
+    {
+        var response = await http.PostAsJsonAsync($"api/attempts/{attemptId}/advance-to-diagnosis", request, JsonOptions, ct);
+        return await ReadAsync<PublicAttemptView>(response, ct);
+    }
+
+    public async Task<PublicAnswerResult> SubmitDiagnosisAsync(Guid attemptId, SubmitDiagnosisRequest request, CancellationToken ct = default)
     {
         var response = await http.PostAsJsonAsync($"api/attempts/{attemptId}/diagnosis", request, JsonOptions, ct);
-        return await ReadAsync<PublicAttemptView>(response, ct);
+        return await ReadAsync<PublicAnswerResult>(response, ct);
     }
 
-    public async Task<PublicAttemptView> SubmitRemediationAsync(Guid attemptId, SubmitRemediationRequest request, CancellationToken ct = default)
+    public async Task<PublicAnswerResult> SubmitRemediationAsync(Guid attemptId, SubmitRemediationRequest request, CancellationToken ct = default)
     {
         var response = await http.PostAsJsonAsync($"api/attempts/{attemptId}/remediation", request, JsonOptions, ct);
-        return await ReadAsync<PublicAttemptView>(response, ct);
+        return await ReadAsync<PublicAnswerResult>(response, ct);
     }
 
-    public async Task<PublicAttemptView> SubmitVerificationAsync(Guid attemptId, SubmitVerificationRequest request, CancellationToken ct = default)
+    public async Task<PublicAnswerResult> SubmitVerificationAsync(Guid attemptId, SubmitVerificationRequest request, CancellationToken ct = default)
     {
         var response = await http.PostAsJsonAsync($"api/attempts/{attemptId}/verification", request, JsonOptions, ct);
-        return await ReadAsync<PublicAttemptView>(response, ct);
+        return await ReadAsync<PublicAnswerResult>(response, ct);
     }
 
     private static async Task<T> ReadAsync<T>(HttpResponseMessage response, CancellationToken ct)
     {
         if (response.StatusCode == HttpStatusCode.NotFound) throw new ApiNotFoundException();
-        if (!response.IsSuccessStatusCode) throw new ApiRequestException(response.StatusCode);
+        if (!response.IsSuccessStatusCode) throw new ApiRequestException(response.StatusCode, await ReadDetailAsync(response, ct));
         try
         {
             return await response.Content.ReadFromJsonAsync<T>(cancellationToken: ct) ?? throw new ApiRequestException(HttpStatusCode.BadGateway);
@@ -80,10 +86,26 @@ public sealed class InfraLabApiClient(HttpClient http)
             throw new ApiRequestException(HttpStatusCode.BadGateway);
         }
     }
+
+    private static async Task<string?> ReadDetailAsync(HttpResponseMessage response, CancellationToken ct)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));
+            return document.RootElement.TryGetProperty("detail", out var detail) && detail.ValueKind == JsonValueKind.String
+                ? detail.GetString()
+                : null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
 }
 
 public sealed class ApiNotFoundException : Exception;
-public sealed class ApiRequestException(HttpStatusCode statusCode) : Exception
+public sealed class ApiRequestException(HttpStatusCode statusCode, string? detail = null) : Exception(detail)
 {
     public HttpStatusCode StatusCode { get; } = statusCode;
+    public string? Detail { get; } = detail;
 }

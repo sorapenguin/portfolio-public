@@ -16,7 +16,14 @@ public sealed class ScenarioDefinitionValidator
         Required(scenario.Category, "USER_TEXT_REQUIRED", issues);
         Required(scenario.Difficulty, "USER_TEXT_REQUIRED", issues);
         Required(scenario.Summary, "USER_TEXT_REQUIRED", issues);
+        Required(scenario.Version.Id, "SCENARIO_VERSION_ID_REQUIRED", issues);
+        if (scenario.Version.Number < 1) issues.Add(new("SCENARIO_VERSION_NUMBER_INVALID", "Scenario version number must be at least one."));
+        if (scenario.Symptoms.Count == 0 || scenario.Symptoms.Any(string.IsNullOrWhiteSpace)) issues.Add(new("SYMPTOMS_REQUIRED", "At least one usable symptom is required."));
+        if (scenario.Category is not "lpic1") issues.Add(new("SCENARIO_CATEGORY_INVALID", $"Unsupported category: {scenario.Category}."));
+        if (scenario.Difficulty is not "beginner") issues.Add(new("SCENARIO_DIFFICULTY_INVALID", $"Unsupported difficulty: {scenario.Difficulty}."));
 
+        if (scenario.Version.Actions.Count == 0) issues.Add(new("ACTIONS_REQUIRED", "At least one action is required."));
+        if (scenario.Version.Evidence.Count == 0) issues.Add(new("EVIDENCE_REQUIRED", "At least one evidence item is required."));
         Unique(scenario.Version.Actions.Select(x => x.Id), "DUPLICATE_ACTION_ID", issues);
         Unique(scenario.Version.Evidence.Select(x => x.Id), "DUPLICATE_EVIDENCE_ID", issues);
         foreach (var item in scenario.Version.Evidence)
@@ -35,6 +42,7 @@ public sealed class ScenarioDefinitionValidator
         {
             Id(action.Id, "ACTION_ID_INVALID", issues);
             Required(action.Label, "USER_TEXT_REQUIRED", issues);
+            if (action.Phase != ScenarioPhase.Investigate) issues.Add(new("ACTION_PHASE_INVALID", $"Action {action.Id} must use the Investigate phase."));
             if (action.RevealsEvidenceIds.Distinct().Count() != action.RevealsEvidenceIds.Count ||
                 action.RevealsEvidenceIds.Any(id => !evidence.Contains(id)))
             {
@@ -51,6 +59,7 @@ public sealed class ScenarioDefinitionValidator
             {
                 issues.Add(new("COMMAND_PATTERN_REQUIRED", "Command pattern is required."));
             }
+            if (action.Patterns.Count == 0) issues.Add(new("COMMAND_PATTERN_REQUIRED", $"Action {action.Id} requires at least one command pattern."));
         }
 
         var validationInputs = new List<string>();
@@ -115,6 +124,21 @@ public sealed class ScenarioDefinitionValidator
         {
             issues.Add(new("REQUIRED_REFERENCE_NOT_FOUND", "Required evidence reference is invalid."));
         }
+        References(definition.DiagnosisHints.Keys, diagnoses, "DIAGNOSIS_HINT_REFERENCE_INVALID", issues);
+        References(definition.RemediationHints.Keys, remediations, "REMEDIATION_HINT_REFERENCE_INVALID", issues);
+        References(definition.VerificationHints.Keys, verifications, "VERIFICATION_HINT_REFERENCE_INVALID", issues);
+        References(definition.DiagnosisSuccessFeedback.Keys, diagnoses, "DIAGNOSIS_SUCCESS_REFERENCE_INVALID", issues);
+        References(definition.RemediationSuccessFeedback.Keys, remediations, "REMEDIATION_SUCCESS_REFERENCE_INVALID", issues);
+        References(definition.VerificationSuccessFeedback.Keys, verifications, "VERIFICATION_SUCCESS_REFERENCE_INVALID", issues);
+        if (scenario.Category == "lpic1" && scenario.Difficulty == "beginner")
+        {
+            var coreEvidence = scenario.Version.Actions.Where(x => x.InvestigationGroup == InvestigationGroup.Core).SelectMany(x => x.RevealsEvidenceIds).ToHashSet();
+            if (!definition.RequiredEvidenceIds.IsSubsetOf(coreEvidence)) issues.Add(new("CORE_EVIDENCE_UNREACHABLE", "Core actions must reveal all required evidence."));
+            if (scenario.Version.Actions.Where(x => x.InvestigationGroup == InvestigationGroup.Supplemental).SelectMany(x => x.RevealsEvidenceIds).Any(definition.RequiredEvidenceIds.Contains)) issues.Add(new("SUPPLEMENTAL_REVEALS_REQUIRED_EVIDENCE", "Supplemental actions must not reveal required evidence."));
+            foreach (var id in diagnoses.Where(id => id != definition.CorrectDiagnosisId)) if (!definition.DiagnosisHints.ContainsKey(id)) issues.Add(new("DIAGNOSIS_HINT_REQUIRED", $"Incorrect diagnosis hint is missing: {id}."));
+            foreach (var id in remediations.Where(id => id != definition.CorrectRemediationId)) if (!definition.RemediationHints.ContainsKey(id)) issues.Add(new("REMEDIATION_HINT_REQUIRED", $"Incorrect remediation hint is missing: {id}."));
+            foreach (var id in verifications.Where(id => !definition.RequiredVerificationIds.Contains(id))) if (!definition.VerificationHints.ContainsKey(id)) issues.Add(new("VERIFICATION_HINT_REQUIRED", $"Incorrect verification hint is missing: {id}."));
+        }
 
         return issues;
     }
@@ -142,6 +166,14 @@ public sealed class ScenarioDefinitionValidator
         if (items.Distinct(StringComparer.Ordinal).Count() != items.Length)
         {
             issues.Add(new(code, "Duplicate value."));
+        }
+    }
+
+    private static void References(IEnumerable<string> values, HashSet<string> candidates, string code, List<ScenarioValidationIssue> issues)
+    {
+        foreach (var value in values.Where(value => !candidates.Contains(value)))
+        {
+            issues.Add(new(code, $"Referenced candidate does not exist: {value}."));
         }
     }
 

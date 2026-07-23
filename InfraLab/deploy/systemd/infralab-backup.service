@@ -1,0 +1,28 @@
+[Unit]
+Description=InfraLab PostgreSQL logical backup
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=infralab-backup
+Group=infralab-backup
+WorkingDirectory=/opt/infralab
+EnvironmentFile=/etc/infralab/backup.env
+ExecStart=/opt/infralab/scripts/run-scheduled-backup.sh
+TimeoutStartSec=30m
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+ReadWritePaths=/var/backups/infralab /var/lib/infralab-backup
+StandardOutput=journal
+StandardError=journal

@@ -1,0 +1,32 @@
+{
+  "schema_version": 2,
+  "type": "core",
+  "id": "core-proxy-timeout-001",
+  "title": "Reverse Proxy タイムアウト",
+  "description": "Reverse Proxy が上流 Application の応答を待つ間にタイムアウトする基本シナリオです。",
+  "difficulty": "beginner",
+  "category": "timeout",
+  "learning_goals": [
+    "Reverse Proxy の待機時間と Application の応答時間を比較できる。",
+    "上流 Application が正常レスポンスを返す設定でも、Proxy が先にタイムアウトを生成し得ることを理解する。",
+    "最終 HTTP レスポンスを生成した Node を、単なる障害発生箇所と区別できる。"
+  ],
+  "topology": {
+    "nodes": [
+      { "id": "client", "type": "client", "label": "Browser" },
+      { "id": "proxy", "type": "proxy", "label": "Reverse Proxy", "settings": { "timeout_ms": 5000 } },
+      { "id": "app", "type": "app", "label": "Application", "settings": { "response_delay_ms": 6000, "response_type": "normal", "status_code": 200 } }
+    ],
+    "edges": [
+      { "from": "client", "to": "proxy" },
+      { "from": "proxy", "to": "app" }
+    ]
+  },
+  "explanation": "Reverse Proxy の待機時間は 5000ms で、Application の正常応答は 6000ms 後に設定されています。そのため、Application が正常な 200 を返す予定でも、Proxy が先に待機を打ち切り、最終 HTTP レスポンスを生成します。この教材モデルは各クラウドサービスの実装と完全に同一であることを意味しません。",
+  "wrong_explanation": "Application は 200 を返す設定ですが、この場合は応答予定時刻より先に Proxy の待機時間が尽きます。Application を最終レスポンス生成 Node とみなすのは、処理を開始した Node と実際にクライアントへ最終応答を返した Node を混同した誤解です。",
+  "cloud_concept_refs": [
+    "aws.alb.idle_timeout",
+    "azure.application_gateway.request_timeout",
+    "gcp.cloud_load_balancing.backend_timeout"
+  ]
+}

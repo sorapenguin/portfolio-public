@@ -1,0 +1,47 @@
+# InfraLab — 本番デプロイ用 Docker Compose
+#
+# 前提:
+#   - traefik-net 外部ネットワーク（Traefik が管理・既存）
+#   - shared-pg-net 外部ネットワーク（shared-postgres が管理・既存）
+#   - .env ファイルで INFRALAB_DB_CONNECTION を設定済み
+#
+# イメージビルド（InfraLab/ ディレクトリで実行）:
+#   docker build -t "${INFRALAB_IMAGE_REPOSITORY}:git-<short-sha>" .
+#
+# 起動:
+#   docker compose up -d
+
+services:
+  infralab:
+    image: "${INFRALAB_IMAGE_REPOSITORY:?INFRALAB_IMAGE_REPOSITORY is required}:${INFRALAB_IMAGE_TAG:?INFRALAB_IMAGE_TAG is required}"
+    container_name: infralab
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_URLS: http://+:8080
+      InfraLab__ContentPath: /content
+      InfraLab__ApplicationVersion: ${INFRALAB_IMAGE_TAG}
+      InfraLab__TrustedProxyNetworks: ${INFRALAB_TRUSTED_PROXY_NETWORKS}
+      ConnectionStrings__DefaultConnection: ${INFRALAB_DB_CONNECTION}
+    networks:
+      - traefik-net
+      - shared-pg-net
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://localhost:8080/health/live"]
+      interval: 30s
+      timeout: 10s
+      start_period: 30s
+      retries: 3
+    restart: unless-stopped
+    stop_grace_period: 30s
+    mem_limit: 512m
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  traefik-net:
+    external: true
+  shared-pg-net:
+    external: true

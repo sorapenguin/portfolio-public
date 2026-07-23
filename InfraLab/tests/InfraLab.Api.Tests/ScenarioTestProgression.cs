@@ -17,6 +17,11 @@ internal static class ScenarioTestProgression
         for (var step = 0; attempt.Phase is (int)ScenarioPhase.Observe or (int)ScenarioPhase.Investigate; step++)
         {
             Assert.True(step < 100, $"INVESTIGATION_STALLED at step {step}.");
+            if (attempt.CanAdvanceToDiagnosis)
+            {
+                attempt = await SubmitAsync(client, attempt, "advance-to-diagnosis", new AdvanceToDiagnosisRequest(attempt.StateVersion, Guid.NewGuid().ToString("N")));
+                continue;
+            }
             var action = attempt.AvailableActions.FirstOrDefault(x => !attempt.ExecutedActions.Contains(x.Id, StringComparer.Ordinal));
             if (action is not null)
             {

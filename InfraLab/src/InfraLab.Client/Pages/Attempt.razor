@@ -1,439 +1,744 @@
 @page "/attempts/{AttemptId:guid}"
+@using InfraLab.Client.Models
 @inject Services.InfraLabApiClient Api
 @inject NavigationManager Navigation
+@inject IJSRuntime JS
 @implements IDisposable
 
 <PageTitle>演習 | InfraLab</PageTitle>
 
 @if (loading)
 {
-    <p role="status">Attemptを読み込み中です…</p>
+    <p class="status-loading" role="status">演習を読み込み中です…</p>
 }
 else if (notFound)
 {
-    <h1>演習が見つかりませんでした。</h1>
-    <a href="scenarios">一覧へ戻る</a>
+    <div class="empty-state">
+        <p style="margin:0 0 1rem">演習が見つかりませんでした。</p>
+        <a href="scenarios" class="btn">← 一覧へ戻る</a>
+    </div>
 }
 else if (error)
 {
-    <p class="error">Attemptを取得できませんでした。</p>
-    <button @onclick="LoadAsync">再試行</button>
+    <div class="msg-error">
+        <p style="margin:0 0 .75rem">演習を取得できませんでした。</p>
+        <button @onclick="LoadAsync">再試行</button>
+    </div>
 }
 else if (attempt is not null)
 {
-    <h1>演習</h1>
-    <h2>@(string.IsNullOrWhiteSpace(attempt.ScenarioTitle) ? "シナリオ" : attempt.ScenarioTitle)</h2>
+    <div class="attempt-page-wrapper">
 
-    @if (attempt.Symptoms.Length > 0)
-    {
-        <section>
-            <h3>症状</h3>
-            <ul>
-                @foreach (var symptom in attempt.Symptoms)
-                {
-                    <li>@symptom</li>
-                }
-            </ul>
-        </section>
-    }
+        @* ════════ LEFT PANEL ════════ *@
+        <div class="attempt-left-panel">
 
-    <section class="attempt-info">
-        <h3>Attempt情報</h3>
-        <dl>
-            <dt>Attempt ID</dt>
-            <dd class="attempt-id">@attempt.Id</dd>
-            <dt>フェーズ</dt>
-            <dd>@PhaseLabel(attempt.Phase)</dd>
-            <dt>状態</dt>
-            <dd>@StatusLabel(attempt.Status)</dd>
-            <dt>StateVersion</dt>
-            <dd>@attempt.StateVersion</dd>
-        </dl>
-    </section>
-
-    @if (attempt.Phase == 5 && attempt.Status == 1)
-    {
-        <section>
-            <h3>演習完了</h3>
-            @if (resultLoading)
-            {
-                <p role="status">結果を読み込み中…</p>
-            }
-            else if (!string.IsNullOrWhiteSpace(resultMessage))
-            {
-                <p class="error">@resultMessage</p>
-            }
-            else if (result is not null)
-            {
-                <p>@result.ScenarioTitle</p>
-                <p>総合得点: @result.Score.Total</p>
-                <ul>
-                    <li>診断: @result.Score.Diagnosis</li>
-                    <li>対処: @result.Score.Remediation</li>
-                    <li>復旧確認: @result.Score.Verification</li>
-                </ul>
-                @if (reviewLoading)
+            @* フェーズ進捗バー *@
+            <div class="phase-bar" role="navigation" aria-label="フェーズ進捗">
+                @foreach (var step in AttemptPresentation.PhaseOrder)
                 {
-                    <p role="status">振り返りを読み込み中…</p>
-                }
-                else if (!string.IsNullOrWhiteSpace(reviewMessage))
-                {
-                    <p class="error">@reviewMessage</p>
-                }
-                else if (review is not null)
-                {
-                    <section>
-                        <h4>振り返り</h4>
-                        @if (review.Diagnosis is not null)
-                        {
-                            <section><h5>診断</h5><p>あなたの回答: @review.Diagnosis.SelectedLabel</p><p>推奨回答: @review.Diagnosis.ExpectedLabel</p><p>結果: @(review.Diagnosis.IsCorrect ? "正解" : "不正解")</p>@if (!string.IsNullOrWhiteSpace(review.Diagnosis.Explanation)) { <p>解説: @review.Diagnosis.Explanation</p> }@if (review.Diagnosis.EarnedScore is not null) { <p>得点: @review.Diagnosis.EarnedScore</p> }</section>
-                        }
-                        @if (review.Remediation is not null)
-                        {
-                            <section><h5>対処</h5><p>あなたの回答: @review.Remediation.SelectedLabel</p><p>推奨回答: @review.Remediation.ExpectedLabel</p><p>結果: @(review.Remediation.IsCorrect ? "正解" : "不正解")</p>@if (!string.IsNullOrWhiteSpace(review.Remediation.Explanation)) { <p>解説: @review.Remediation.Explanation</p> }@if (review.Remediation.EarnedScore is not null) { <p>得点: @review.Remediation.EarnedScore</p> }</section>
-                        }
-                        @if (review.Verification is not null)
-                        {
-                            <section><h5>復旧確認</h5><p>あなたの回答:</p><ul>@foreach (var label in review.Verification.SelectedLabels) { <li>@label</li> }</ul><p>推奨回答:</p><ul>@foreach (var label in review.Verification.ExpectedLabels) { <li>@label</li> }</ul><p>結果: @(review.Verification.IsCorrect ? "正解" : "不正解")</p>@if (!string.IsNullOrWhiteSpace(review.Verification.Explanation)) { <p>解説: @review.Verification.Explanation</p> }@if (review.Verification.EarnedScore is not null) { <p>得点: @review.Verification.EarnedScore</p> }</section>
-                        }
-                    </section>
-                }
-                <button disabled="@(!CanStartRetry)" @onclick="StartRetryAsync">@(isStartingRetry ? "開始中…" : "同じ演習にもう一度挑戦")</button>
-                @if (!string.IsNullOrWhiteSpace(retryMessage))
-                {
-                    <p class="error">@retryMessage</p>
-                }
-            }
-        </section>
-    }
-
-    @if (CanSubmitCommands(attempt.Phase))
-    {
-        <section>
-            <h3>コマンド入力</h3>
-            @if (!string.IsNullOrWhiteSpace(commandMessage))
-            {
-                <p class="error">@commandMessage</p>
-            }
-            <form class="command-form" @onsubmit="SubmitCommandAsync" @onsubmit:preventDefault="true">
-                <label for="command-input">コマンド</label>
-                <input id="command-input"
-                       @bind="commandInput"
-                       @bind:event="oninput"
-                       disabled="@(IsMutating || notFound)"
-                       placeholder="コマンドを入力"
-                       type="text" />
-                <button type="submit" disabled="@(!CanSubmitCommand)">@(isSubmittingCommand ? "実行中…" : "実行")</button>
-            </form>
-        </section>
-    }
-
-    <section>
-        <h3>調査操作</h3>
-        @if (!string.IsNullOrWhiteSpace(actionMessage))
-        {
-            <p class="error">@actionMessage</p>
-        }
-        @if (attempt.AvailableActions.Length == 0)
-        {
-            <p>現在実行できる調査操作はありません。</p>
-        }
-        else
-        {
-            <div class="action-list">
-                @foreach (var action in attempt.AvailableActions)
-                {
-                    <button disabled="@(IsMutating || notFound)" @onclick="() => SubmitActionAsync(action.Id)">@(isSubmittingAction && submittingActionId == action.Id ? "実行中…" : action.Label)</button>
+                    var cls = displayPhase > step ? "phase-step done"
+                            : displayPhase == step  ? "phase-step active"
+                            : "phase-step";
+                    <div class="@cls">@PhaseLabel(step)</div>
                 }
             </div>
-        }
-    </section>
 
-    @if (attempt.Phase == 2)
-    {
-        <section>
-            <h3>診断</h3>
-            @if (!string.IsNullOrWhiteSpace(diagnosisMessage))
-            {
-                <p class="error">@diagnosisMessage</p>
-            }
-            @if (attempt.AvailableDiagnoses.Length == 0)
-            {
-                <p>現在選択できる診断候補はありません。</p>
-            }
-            else
-            {
-                <div class="action-list">
-                    @foreach (var diagnosis in attempt.AvailableDiagnoses)
-                    {
-                        <label>
-                            <input type="radio"
-                                   name="diagnosis"
-                                   value="@diagnosis.Id"
-                                   checked="@(selectedDiagnosisId == diagnosis.Id)"
-                                   @onchange="() => selectedDiagnosisId = diagnosis.Id"
-                                   disabled="@(IsMutating || notFound)" />
-                            @diagnosis.Label
-                        </label>
-                    }
+            @* 演習タイトル（スマホ: 折りたたみ） *@
+            <details class="attempt-collapsible" id="scenario-section">
+                <summary class="attempt-collapsible-summary">
+                    演習
+                    <span class="attempt-collapsible-icon" aria-hidden="true"></span>
+                </summary>
+                <div class="attempt-head-inner">
+                    <p class="attempt-head-title">@(string.IsNullOrWhiteSpace(attempt.ScenarioTitle) ? "シナリオ" : attempt.ScenarioTitle)</p>
                 </div>
-                <button disabled="@(!CanSubmitDiagnosis)" @onclick="SubmitDiagnosisAsync">@(isSubmittingDiagnosis ? "送信中…" : "診断を確定")</button>
-            }
-        </section>
-    }
+            </details>
 
-    @if (attempt.Phase == 3)
-    {
-        <section>
-            <h3>対処</h3>
-            @if (!string.IsNullOrWhiteSpace(remediationMessage))
+            @* 症状（スマホ: 折りたたみ） *@
+            @if (attempt.Symptoms.Length > 0)
             {
-                <p class="error">@remediationMessage</p>
+                <details class="attempt-collapsible" id="symptoms-section">
+                    <summary class="attempt-collapsible-summary">
+                        症状
+                        <span class="attempt-collapsible-icon" aria-hidden="true"></span>
+                    </summary>
+                    <div class="attempt-collapsible-body">
+                        <ul class="symptom-list">
+                            @foreach (var symptom in attempt.Symptoms)
+                            {
+                                <li class="symptom-item">@symptom</li>
+                            }
+                        </ul>
+                    </div>
+                </details>
             }
-            @if (attempt.AvailableRemediations.Length == 0)
-            {
-                <p>現在選択できる対処候補はありません。</p>
-            }
-            else
-            {
-                <div class="action-list">
-                    @foreach (var remediation in attempt.AvailableRemediations)
-                    {
-                        <label>
-                            <input type="radio"
-                                   name="remediation"
-                                   value="@remediation.Id"
-                                   checked="@(selectedRemediationId == remediation.Id)"
-                                   @onchange="() => selectedRemediationId = remediation.Id"
-                                   disabled="@(IsMutating || notFound)" />
-                            @remediation.Label
-                        </label>
-                    }
+
+            @* 操作ログ *@
+            <section class="section-card evidence-panel" @ref="evidencePanelRef">
+                <div class="evidence-panel-head">
+                    <h2 class="section-title" style="margin-bottom:0">操作ログ</h2>
+                    <span>@attempt.RevealedEvidence.Length 件</span>
                 </div>
-                <button disabled="@(!CanSubmitRemediation)" @onclick="SubmitRemediationAsync">@(isSubmittingRemediation ? "実行中…" : "対処を実行")</button>
-            }
-        </section>
-    }
+                @if (attempt.RevealedEvidence.Length == 0)
+                {
+                    <p class="evidence-empty">調査操作を選ぶと<br>ここに操作ログが表示されます</p>
+                }
+                else
+                {
+                    <div class="evidence-list">
+                        @foreach (var evidence in attempt.RevealedEvidence.Reverse())
+                        {
+                            <div class="evidence-item">
+                                <div class="evidence-head">
+                                    <span>@evidence.Title</span>
+                                    <span class="badge @EvidenceBadgeClass(evidence.Type)">@EvidenceTypeLabel(evidence.Type)</span>
+                                </div>
+                                @if (!string.IsNullOrWhiteSpace(evidence.Method))
+                                {
+                                    <div class="evidence-part"><p>確認方法</p><code>@evidence.Method</code></div>
+                                }
+                                @if (!string.IsNullOrWhiteSpace(evidence.SampleOutput))
+                                {
+                                    <div class="evidence-part"><p>代表出力</p><pre class="evidence-pre" aria-label="代表出力">@evidence.SampleOutput</pre></div>
+                                }
+                                @if (!string.IsNullOrWhiteSpace(evidence.Interpretation))
+                                {
+                                    <div class="evidence-part evidence-interpretation"><p>この結果から分かること</p><span>@evidence.Interpretation</span></div>
+                                }
+                                @if (string.IsNullOrWhiteSpace(evidence.Method) && string.IsNullOrWhiteSpace(evidence.SampleOutput) && string.IsNullOrWhiteSpace(evidence.Interpretation))
+                                {
+                                    <pre class="evidence-pre" aria-label="Evidence内容">@evidence.Text</pre>
+                                }
+                            </div>
+                        }
+                    </div>
+                }
+            </section>
 
-    @if (attempt.Phase == 4)
-    {
-        <section>
-            <h3>復旧確認</h3>
-            @if (!string.IsNullOrWhiteSpace(verificationMessage))
+        </div>@* /attempt-left-panel *@
+
+        @* ════════ RIGHT PANEL ════════ *@
+        <div class="attempt-right-panel">
+
+            @* 演習完了・採点結果 *@
+            @if (attempt.Phase == 5 && attempt.Status == 1)
             {
-                <p class="error">@verificationMessage</p>
-            }
-            @if (attempt.AvailableVerifications.Length == 0)
-            {
-                <p>現在選択できる復旧確認候補はありません。</p>
-            }
-            else
-            {
-                <div class="action-list">
-                    @foreach (var verification in attempt.AvailableVerifications)
+                <section class="section-card review-result-card" @ref="reviewScoreRef" tabindex="-1">
+                    @if (resultLoading)
                     {
-                        <label><input type="checkbox" value="@verification.Id" checked="@selectedVerificationIds.Contains(verification.Id)" @onchange="() => ToggleVerification(verification.Id)" disabled="@(IsMutating || notFound)" /> @verification.Label</label>
+                        <p class="status-loading" role="status">結果を読み込み中…</p>
                     }
-                </div>
-                <button disabled="@(!CanSubmitVerification)" @onclick="SubmitVerificationAsync">@(isSubmittingVerification ? "確認中…" : "復旧確認を確定")</button>
-            }
-        </section>
-    }
+                    else if (!string.IsNullOrWhiteSpace(resultMessage))
+                    {
+                        <div class="msg-error">@resultMessage</div>
+                    }
+                    else if (result is not null)
+                    {
+                        <p class="page-eyebrow">結果・解説</p>
+                        <div class="score-display">
+                            <span class="score-total">合計 @result.Score.Total / 100点</span>
+                        </div>
+                        <div class="score-breakdown">
+                            <span class="score-pill">調査 @result.Score.Investigation / 10</span>
+                            <span class="score-pill">診断 @result.Score.Diagnosis / 30（誤答@(review?.Diagnosis?.IncorrectCount ?? 0)回）</span>
+                            <span class="score-pill">対処 @result.Score.Remediation / 30（誤答@(review?.Remediation?.IncorrectCount ?? 0)回）</span>
+                            <span class="score-pill">復旧確認 @result.Score.Verification / 30（誤答@(review?.Verification?.IncorrectCount ?? 0)回）</span>
+                        </div>
 
-    <section>
-        <h3>開示済みEvidence</h3>
-        @if (attempt.RevealedEvidence.Length == 0)
-        {
-            <p>まだEvidenceは開示されていません。</p>
-        }
-        else
-        {
-            @foreach (var evidence in attempt.RevealedEvidence)
-            {
-                <section class="evidence">
-                    <h4>@evidence.Title <span class="evidence-type">@EvidenceTypeLabel(evidence.Type)</span></h4>
-                    <pre aria-label="Evidence内容">@evidence.Text</pre>
+                        @if (reviewLoading)
+                        {
+                            <p class="status-loading" role="status">振り返りを読み込み中…</p>
+                        }
+                        else if (!string.IsNullOrWhiteSpace(reviewMessage))
+                        {
+                            <div class="msg-error">@reviewMessage</div>
+                        }
+                        else if (review is not null)
+                        {
+                            <div class="review-section">
+                                @if (review.Diagnosis is not null)
+                                {
+                                    <details class="review-details">
+                                        <summary class="review-summary">
+                                            <span class="review-summary-toggle">▶</span>
+                                            <span class="review-summary-phase">診断</span>
+                                            <span class="review-summary-score">@review.Diagnosis.EarnedScore / 30点</span>
+                                            <span class="review-summary-incorrect">誤答 @review.Diagnosis.IncorrectCount 回</span>
+                                            <span class="review-summary-label">@review.Diagnosis.SelectedLabel</span>
+                                        </summary>
+                                        <div class="review-detail-body">
+                                            @if (!string.IsNullOrWhiteSpace(review.Diagnosis.Explanation))
+                                            { <p class="review-explain">@review.Diagnosis.Explanation</p> }
+                                        </div>
+                                    </details>
+                                }
+                                @if (review.Remediation is not null)
+                                {
+                                    <details class="review-details">
+                                        <summary class="review-summary">
+                                            <span class="review-summary-toggle">▶</span>
+                                            <span class="review-summary-phase">対処</span>
+                                            <span class="review-summary-score">@review.Remediation.EarnedScore / 30点</span>
+                                            <span class="review-summary-incorrect">誤答 @review.Remediation.IncorrectCount 回</span>
+                                            <span class="review-summary-label">@review.Remediation.SelectedLabel</span>
+                                        </summary>
+                                        <div class="review-detail-body">
+                                            @if (!string.IsNullOrWhiteSpace(review.Remediation.Explanation))
+                                            { <p class="review-explain">@review.Remediation.Explanation</p> }
+                                        </div>
+                                    </details>
+                                }
+                                @if (review.Verification is not null)
+                                {
+                                    var verSummaryLabel = review.Verification.SelectedLabels.Count == 1
+                                        ? review.Verification.SelectedLabels[0]
+                                        : $"{review.Verification.SelectedLabels.Count}件選択";
+                                    <details class="review-details">
+                                        <summary class="review-summary">
+                                            <span class="review-summary-toggle">▶</span>
+                                            <span class="review-summary-phase">復旧確認</span>
+                                            <span class="review-summary-score">@review.Verification.EarnedScore / 30点</span>
+                                            <span class="review-summary-incorrect">誤答 @review.Verification.IncorrectCount 回</span>
+                                            <span class="review-summary-label">@verSummaryLabel</span>
+                                        </summary>
+                                        <div class="review-detail-body">
+                                            @if (review.Verification.SelectedLabels.Count > 1)
+                                            {
+                                                <ul>@foreach (var lbl in review.Verification.SelectedLabels) { <li>@lbl</li> }</ul>
+                                            }
+                                            @if (!string.IsNullOrWhiteSpace(review.Verification.Explanation))
+                                            { <p class="review-explain">@review.Verification.Explanation</p> }
+                                        </div>
+                                    </details>
+                                }
+                            </div>
+                        }
+
+                        <div style="margin-top:1.25rem">
+                            <button class="btn btn-primary" disabled="@(!CanStartRetry)" @onclick="StartRetryAsync">
+                                @(isStartingRetry ? "開始中…" : "同じ演習にもう一度挑戦")
+                            </button>
+                            @if (!string.IsNullOrWhiteSpace(retryMessage))
+                            {
+                                <div class="msg-error" style="margin-top:.75rem">@retryMessage</div>
+                            }
+                        </div>
+                    }
                 </section>
             }
-        }
-    </section>
 
-    <a href="scenarios">一覧へ戻る</a>
+            @* コマンド入力（対応シナリオのみ） *@
+            @if (AttemptPresentation.ShowsManualCommandToggle(attempt))
+            {
+                <section class="section-card">
+                    <button class="command-toggle" type="button" aria-expanded="@commandInputOpen" aria-controls="manual-command-panel" @onclick="ToggleCommandInput">
+                        手動コマンドを試す <span aria-hidden="true">@(commandInputOpen ? "⌃" : "⌄")</span>
+                    </button>
+                    @if (commandInputOpen)
+                    {
+                        <div id="manual-command-panel" class="command-panel">
+                            <p class="learning-copy">表示された調査操作とは別に、登録済みのコマンドを試せます。</p>
+                            @if (!string.IsNullOrWhiteSpace(commandMessage))
+                            {
+                                <div class="@MessageClass(commandMessage)" role="alert" style="margin-bottom:.75rem">@commandMessage</div>
+                            }
+                            <form class="terminal-form" @onsubmit="SubmitCommandAsync" @onsubmit:preventDefault="true">
+                                <label for="command-input" style="display:none">コマンド</label>
+                                <input id="command-input" class="terminal-input" @bind="commandInput" @bind:event="oninput" disabled="@(IsMutating || notFound)" placeholder="コマンドを入力…" type="text" autocomplete="off" spellcheck="false" />
+                                <button type="submit" class="terminal-submit" disabled="@(!CanSubmitCommand)">@(isSubmittingCommand ? "実行中…" : "実行")</button>
+                            </form>
+                        </div>
+                    }
+                </section>
+            }
+
+            @* 調査操作（フェーズ 1） *@
+            @if (AttemptPresentation.ShowsInvestigation(displayPhase))
+            {
+                <section class="section-card attempt-operation">
+                    <h2 class="section-title">調査操作</h2>
+                    @if (!string.IsNullOrWhiteSpace(actionMessage))
+                    {
+                        <div class="@MessageClass(actionMessage)" role="alert" style="margin-bottom:.75rem">@actionMessage</div>
+                    }
+                    @if (attempt.AvailableActions.Length == 0)
+                    {
+                        <p style="font-size:.875rem;color:var(--slate-400);margin:0">現在実行できる調査操作はありません。</p>
+                    }
+                    else
+                    {
+                        <p class="learning-copy">調査結果を予想し、原因の切り分けに必要な操作を選んでください。</p>
+                        @if (AttemptPresentation.HasExecutionExamples(attempt.AvailableActions))
+                        {
+                            <div class="action-display-toggle" role="group" aria-label="調査操作の表示">
+                                <span>表示</span>
+                                <button type="button" class="@(showRepresentativeCommands ? "" : "active")" aria-pressed="@(!showRepresentativeCommands)" @onclick="() => showRepresentativeCommands = false">操作</button>
+                                <button type="button" class="@(showRepresentativeCommands ? "active" : "")" aria-pressed="@showRepresentativeCommands" @onclick="() => showRepresentativeCommands = true">実行例</button>
+                            </div>
+                        }
+                        <div class="action-grid">
+                            @foreach (var action in attempt.AvailableActions)
+                            {
+                                <button type="button" class="action-btn @(action.Executed ? "executed" : "")"
+                                        disabled="@(IsMutating || notFound || action.Executed)"
+                                        @onclick="() => SubmitActionAsync(action.Id)">
+                                    @if (isSubmittingAction && submittingActionId == action.Id)
+                                    { <span>調査中…</span> }
+                                    else if (action.Executed)
+                                    { <span aria-label="調査済み">✓ @ActionDisplayLabel(action)</span> }
+                                    else if (showRepresentativeCommands && !string.IsNullOrWhiteSpace(ActionExample(action)))
+                                    { <code>@ActionExample(action)</code> }
+                                    else
+                                    { <span>@action.Label</span> }
+                                </button>
+                            }
+                        </div>
+                    }
+                    <div class="phase-cta @(AttemptPresentation.CanAdvanceToDiagnosis(attempt) ? "ready" : "waiting")">
+                        @if (AttemptPresentation.CanAdvanceToDiagnosis(attempt))
+                        { <p>診断に必要な情報が揃いました。</p> }
+                        else
+                        { <p>まだ原因を判断するための情報が不足しています。</p> }
+                        <button type="button" class="btn btn-primary" disabled="@(!AttemptPresentation.CanAdvanceToDiagnosis(attempt) || IsMutating)" @onclick="AdvanceToDiagnosisAsync">
+                            @(isAdvancingToDiagnosis ? "移動中…" : "診断へ進む")
+                        </button>
+                    </div>
+                </section>
+            }
+
+            @* 診断（フェーズ 2） *@
+            @if (displayPhase == AttemptDisplayPhase.Diagnosis)
+            {
+                <section class="section-card attempt-operation">
+                    <h2 class="section-title" @ref="diagnosisHeading" tabindex="-1">診断</h2>
+                    <p class="learning-copy">原因として最も適切なものを選んでください。</p>
+
+                    @* 正答フィードバック *@
+                    @if (diagnosisSucceeded)
+                    {
+                        <div class="answer-feedback-correct" role="status" tabindex="-1" @ref="diagnosisResult">
+                            <p class="feedback-correct-title">正解です</p>
+                            @if (!string.IsNullOrWhiteSpace(diagnosisFeedback))
+                            { <p class="feedback-body">@diagnosisFeedback</p> }
+                            <p class="feedback-next">@diagnosisMessage</p>
+                        </div>
+                    }
+                    else if (attempt.AvailableDiagnoses.Length == 0)
+                    {
+                        <p style="font-size:.875rem;color:var(--slate-400);margin:0">現在選択できる診断候補はありません。</p>
+                    }
+                    else
+                    {
+                        <div class="choice-grid" aria-busy="@isSubmittingDiagnosis">
+                            @foreach (var diagnosis in attempt.AvailableDiagnoses)
+                            {
+                                <button type="button"
+                                        class="choice-button @(selectedDiagnosisId == diagnosis.Id ? "selected" : "") @(IsIncorrect(diagnosis.Id) ? "incorrect" : "")"
+                                        disabled="@(!CanSubmitDiagnosis || IsIncorrect(diagnosis.Id))"
+                                        @onclick="() => SubmitDiagnosisAsync(diagnosis.Id)">
+                                    <span class="choice-indicator"></span>@diagnosis.Label
+                                </button>
+                            }
+                        </div>
+                        @* 予約フィードバック領域 *@
+                        <div class="answer-feedback-zone" aria-live="polite" aria-atomic="false">
+                            @if (isSubmittingDiagnosis)
+                            {
+                                <div class="answer-feedback-sending" role="status">確認中…</div>
+                            }
+                            else if (diagnosisIsBusinessError && !string.IsNullOrWhiteSpace(diagnosisMessage))
+                            {
+                                <div class="msg-business" role="alert" tabindex="-1" @ref="diagnosisResult">@diagnosisMessage</div>
+                            }
+                            else if (!string.IsNullOrWhiteSpace(diagnosisMessage))
+                            {
+                                <div class="answer-feedback-incorrect" role="alert" tabindex="-1" @ref="diagnosisResult">
+                                    <p class="feedback-title">不正解です</p>
+                                    @if (!string.IsNullOrWhiteSpace(diagnosisFeedback))
+                                    { <p class="feedback-body">@diagnosisFeedback</p> }
+                                    else
+                                    { <p class="feedback-body">別の診断を選んでください。</p> }
+                                </div>
+                            }
+                        </div>
+                    }
+                </section>
+            }
+
+            @* 対処（フェーズ 3） *@
+            @if (displayPhase == AttemptDisplayPhase.Remediation)
+            {
+                <section class="section-card attempt-operation">
+                    <h2 class="section-title">対処</h2>
+
+                    @if (remediationSucceeded)
+                    {
+                        <div class="answer-feedback-correct" role="status" tabindex="-1" @ref="remediationResult">
+                            <p class="feedback-correct-title">正解です</p>
+                            @if (!string.IsNullOrWhiteSpace(remediationFeedback))
+                            { <p class="feedback-body">@remediationFeedback</p> }
+                            <p class="feedback-next">@remediationMessage</p>
+                        </div>
+                    }
+                    else if (attempt.AvailableRemediations.Length == 0)
+                    {
+                        <p style="font-size:.875rem;color:var(--slate-400);margin:0">現在選択できる対処候補はありません。</p>
+                    }
+                    else
+                    {
+                        <div class="choice-grid" aria-busy="@isSubmittingRemediation">
+                            @foreach (var remediation in attempt.AvailableRemediations)
+                            {
+                                <button type="button"
+                                        class="choice-button @(selectedRemediationId == remediation.Id ? "selected" : "") @(IsIncorrect(remediation.Id) ? "incorrect" : "")"
+                                        disabled="@(!CanSubmitRemediation || IsIncorrect(remediation.Id))"
+                                        @onclick="() => SubmitRemediationAsync(remediation.Id)">
+                                    <span class="choice-indicator"></span>@remediation.Label
+                                </button>
+                            }
+                        </div>
+                        <div class="answer-feedback-zone" aria-live="polite" aria-atomic="false">
+                            @if (isSubmittingRemediation)
+                            {
+                                <div class="answer-feedback-sending" role="status">確認中…</div>
+                            }
+                            else if (remediationIsBusinessError && !string.IsNullOrWhiteSpace(remediationMessage))
+                            {
+                                <div class="msg-business" role="alert" tabindex="-1" @ref="remediationResult">@remediationMessage</div>
+                            }
+                            else if (!string.IsNullOrWhiteSpace(remediationMessage))
+                            {
+                                <div class="answer-feedback-incorrect" role="alert" tabindex="-1" @ref="remediationResult">
+                                    <p class="feedback-title">不正解です</p>
+                                    @if (!string.IsNullOrWhiteSpace(remediationFeedback))
+                                    { <p class="feedback-body">@remediationFeedback</p> }
+                                    else
+                                    { <p class="feedback-body">別の対処を選んでください。</p> }
+                                </div>
+                            }
+                        </div>
+                    }
+                </section>
+            }
+
+            @* 復旧確認（フェーズ 4） *@
+            @if (displayPhase == AttemptDisplayPhase.Verification)
+            {
+                <section class="section-card attempt-operation">
+                    <h2 class="section-title">復旧確認</h2>
+                    <p class="learning-copy">@(IsSingleVerification ? "最も適切な復旧確認計画を1つ選んでください。" : "復旧したことを確認できる項目をすべて選んでください。")</p>
+
+                    @if (verificationSucceeded)
+                    {
+                        <div class="answer-feedback-correct" role="status" tabindex="-1" @ref="verificationResult">
+                            <p class="feedback-correct-title">正解です</p>
+                            @if (!string.IsNullOrWhiteSpace(verificationFeedback))
+                            { <p class="feedback-body">@verificationFeedback</p> }
+                            <p class="feedback-next">@verificationMessage</p>
+                        </div>
+                    }
+                    else if (attempt.AvailableVerifications.Length == 0)
+                    {
+                        <p style="font-size:.875rem;color:var(--slate-400);margin:0">現在選択できる復旧確認候補はありません。</p>
+                    }
+                    else if (IsSingleVerification)
+                    {
+                        <div class="choice-grid" aria-busy="@isSubmittingVerification">
+                            @foreach (var verification in attempt.AvailableVerifications)
+                            {
+                                <button type="button"
+                                        class="choice-button @(selectedVerificationIds.Contains(verification.Id) ? "selected" : "") @(IsIncorrect(verification.Id) ? "incorrect" : "")"
+                                        disabled="@(!CanSubmitSingleVerification || IsIncorrect(verification.Id))"
+                                        @onclick="() => SubmitSingleVerificationAsync(verification.Id)">
+                                    <span class="choice-indicator"></span>@verification.Label
+                                </button>
+                            }
+                        </div>
+                        <div class="answer-feedback-zone" aria-live="polite" aria-atomic="false">
+                            @if (isSubmittingVerification)
+                            {
+                                <div class="answer-feedback-sending" role="status">確認中…</div>
+                            }
+                            else if (verificationIsBusinessError && !string.IsNullOrWhiteSpace(verificationMessage))
+                            {
+                                <div class="msg-business" role="alert" tabindex="-1" @ref="verificationResult">@verificationMessage</div>
+                            }
+                            else if (!string.IsNullOrWhiteSpace(verificationMessage))
+                            {
+                                <div class="answer-feedback-incorrect" role="alert" tabindex="-1" @ref="verificationResult">
+                                    <p class="feedback-title">不正解です</p>
+                                    @if (!string.IsNullOrWhiteSpace(verificationFeedback))
+                                    { <p class="feedback-body">@verificationFeedback</p> }
+                                    else
+                                    { <p class="feedback-body">別の復旧確認計画を選んでください。</p> }
+                                </div>
+                            }
+                        </div>
+                    }
+                    else
+                    {
+                        <p class="selection-count">@selectedVerificationIds.Count 件選択中</p>
+                        <div class="choice-grid">
+                            @foreach (var verification in attempt.AvailableVerifications)
+                            {
+                                <label class="choice-label @(selectedVerificationIds.Contains(verification.Id) ? "checked" : "")">
+                                    <span class="choice-indicator-check"></span>
+                                    <input type="checkbox" value="@verification.Id" checked="@selectedVerificationIds.Contains(verification.Id)" @onchange="() => ToggleVerification(verification.Id)" disabled="@(IsMutating || notFound)" />
+                                    @verification.Label
+                                </label>
+                            }
+                        </div>
+                        <div style="margin-top:1rem">
+                            <button type="button" class="btn btn-primary" disabled="@(!CanSubmitVerification)" @onclick="SubmitVerificationAsync">
+                                @(isSubmittingVerification ? "確認中…" : "復旧確認を確定")
+                            </button>
+                            @if (selectedVerificationIds.Count == 0)
+                            { <p class="disabled-reason">1件以上選択してください。</p> }
+                        </div>
+                        @if (!string.IsNullOrWhiteSpace(verificationMessage))
+                        {
+                            <div class="@(verificationIsBusinessError ? "msg-business" : MessageClass(verificationMessage))" role="status" style="margin-top:.75rem">@verificationMessage</div>
+                        }
+                    }
+                </section>
+            }
+
+            @* 戻るリンク *@
+            <div class="attempt-return">
+                <a href="scenarios" class="btn">← 一覧へ戻る</a>
+            </div>
+
+        </div>@* /attempt-right-panel *@
+
+    </div>@* /attempt-page-wrapper *@
 }
 
 @code {
-    [Parameter]
-    public Guid AttemptId { get; set; }
+    [Parameter] public Guid AttemptId { get; set; }
 
     private readonly CancellationTokenSource cts = new();
     private Contracts.PublicAttemptView? attempt;
-    private bool loading = true;
-    private bool error;
-    private bool notFound;
-    private bool isSubmittingAction;
-    private bool isSubmittingCommand;
-    private bool isSubmittingDiagnosis;
-    private bool isSubmittingRemediation;
-    private bool isSubmittingVerification;
-    private bool isStartingRetry;
+    private bool loading = true, error, notFound;
+    private bool isSubmittingAction, isSubmittingCommand, isSubmittingDiagnosis;
+    private bool isSubmittingRemediation, isSubmittingVerification;
+    private bool isAdvancingToDiagnosis, isStartingRetry;
     private string? submittingActionId;
-    private string? actionMessage;
-    private string? commandMessage;
-    private string? diagnosisMessage;
-    private string? remediationMessage;
-    private string? verificationMessage;
-    private string? retryMessage;
-    private string? selectedDiagnosisId;
-    private string? selectedRemediationId;
+    private string? actionMessage, commandMessage;
+    private string? diagnosisMessage, remediationMessage, verificationMessage, retryMessage;
+    private string? selectedDiagnosisId, selectedRemediationId;
+    private string? selectedDiagnosisLabel, selectedRemediationLabel, selectedVerificationLabel;
+    private string? diagnosisFeedback, remediationFeedback, verificationFeedback;
     private readonly HashSet<string> selectedVerificationIds = [];
     private Contracts.PublicAttemptResult? result;
     private Contracts.PublicAttemptReview? review;
-    private bool resultLoading;
-    private bool reviewLoading;
-    private string? resultMessage;
-    private string? reviewMessage;
+    private bool resultLoading, reviewLoading;
+    private string? resultMessage, reviewMessage;
     private string commandInput = string.Empty;
+    private bool showRepresentativeCommands, commandInputOpen;
+    private long loadGeneration;
+    private AttemptDisplayPhase displayPhase = AttemptDisplayPhase.Observation;
+    private AttemptDisplayPhase? pendingPhase;
+    private bool diagnosisIsBusinessError, remediationIsBusinessError, verificationIsBusinessError;
+    private bool diagnosisSucceeded, remediationSucceeded, verificationSucceeded;
+    private ElementReference diagnosisHeading, diagnosisResult, remediationResult, verificationResult;
+    private ElementReference evidencePanelRef, reviewScoreRef;
+    private bool focusDiagnosisAfterAdvance, focusDiagnosisResult, focusRemediationResult;
+    private bool focusVerificationResult, focusReviewScore;
+    private bool collapsiblesOpened;
 
-    private bool IsMutating => isSubmittingAction || isSubmittingCommand || isSubmittingDiagnosis || isSubmittingRemediation || isSubmittingVerification || isStartingRetry;
+    private bool IsMutating => isSubmittingAction || isSubmittingCommand || isSubmittingDiagnosis
+        || isSubmittingRemediation || isSubmittingVerification || isAdvancingToDiagnosis || isStartingRetry;
     private bool CanStartRetry => attempt is { Phase: 5, Status: 1 } && result is { ScenarioId.Length: > 0 } && !isStartingRetry;
-    private bool CanSubmitCommand => !notFound && attempt is not null && CanSubmitCommands(attempt.Phase) && !string.IsNullOrWhiteSpace(commandInput) && !IsMutating;
-    private bool CanSubmitDiagnosis => !notFound && attempt is not null && attempt.Phase == 2 && !string.IsNullOrWhiteSpace(selectedDiagnosisId) && !IsMutating;
-    private bool CanSubmitRemediation => !notFound && attempt is not null && attempt.Phase == 3 && !string.IsNullOrWhiteSpace(selectedRemediationId) && !IsMutating;
-    private bool CanSubmitVerification => !notFound && attempt is not null && attempt.Phase == 4 && selectedVerificationIds.Count > 0 && !IsMutating;
+    private bool CanSubmitCommand => !notFound && attempt is not null && pendingPhase is null
+        && AttemptPresentation.ShowsManualCommandToggle(attempt) && !string.IsNullOrWhiteSpace(commandInput) && !IsMutating;
+    private bool CanSubmitDiagnosis => !notFound && attempt is not null && !diagnosisSucceeded && pendingPhase is null
+        && AttemptPresentation.FromServerPhase(attempt.Phase) == AttemptDisplayPhase.Diagnosis
+        && displayPhase == AttemptDisplayPhase.Diagnosis && !IsMutating;
+    private bool CanSubmitRemediation => !notFound && attempt is not null && !remediationSucceeded && pendingPhase is null
+        && AttemptPresentation.FromServerPhase(attempt.Phase) == AttemptDisplayPhase.Remediation
+        && displayPhase == AttemptDisplayPhase.Remediation && !IsMutating;
+    private bool CanSubmitVerification => !notFound && attempt is not null && pendingPhase is null
+        && AttemptPresentation.FromServerPhase(attempt.Phase) == AttemptDisplayPhase.Verification
+        && displayPhase == AttemptDisplayPhase.Verification && selectedVerificationIds.Count > 0 && !IsMutating;
+    private bool IsSingleVerification => attempt is not null && AttemptPresentation.IsSingleVerification(attempt);
+    private bool CanSubmitSingleVerification => !notFound && attempt is not null && !verificationSucceeded && pendingPhase is null
+        && AttemptPresentation.FromServerPhase(attempt.Phase) == AttemptDisplayPhase.Verification
+        && displayPhase == AttemptDisplayPhase.Verification && !IsMutating;
 
     protected override async Task OnParametersSetAsync() => await LoadAsync();
 
-    private async Task LoadAsync()
+    protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        loading = true;
-        error = false;
-        notFound = false;
+        // attempt がロード完了した最初の描画時に折りたたみを開く
+        // firstRender 時点はまだ loading=true でコンテンツが DOM にないため、ここで判定する
+        if (!collapsiblesOpened && attempt is not null)
+        {
+            collapsiblesOpened = true;
+            try { await JS.InvokeVoidAsync("infralab.openCollapsiblesIfWide"); } catch { }
+        }
         try
         {
-            attempt = await Api.GetAttemptAsync(AttemptId, cts.Token);
-            await LoadResultAsync();
-        }
-        catch (Services.ApiNotFoundException)
-        {
-            notFound = true;
+            if (focusDiagnosisAfterAdvance) { focusDiagnosisAfterAdvance = false; await diagnosisHeading.FocusAsync(); }
+            if (focusDiagnosisResult)       { focusDiagnosisResult       = false; await diagnosisResult.FocusAsync(); }
+            if (focusRemediationResult)     { focusRemediationResult     = false; await remediationResult.FocusAsync(); }
+            if (focusVerificationResult)    { focusVerificationResult    = false; await verificationResult.FocusAsync(); }
+            if (focusReviewScore)           { focusReviewScore           = false; await reviewScoreRef.FocusAsync(); }
         }
         catch
         {
-            error = true;
-        }
-        finally
-        {
-            loading = false;
+            focusDiagnosisAfterAdvance = focusDiagnosisResult = focusRemediationResult =
+            focusVerificationResult = focusReviewScore = false;
         }
     }
 
+    private async Task LoadAsync()
+    {
+        var gen = ++loadGeneration;
+        var reqId = AttemptId;
+        ResetLocalAttemptState();
+        loading = true; error = false; notFound = false;
+        try
+        {
+            var loaded = await Api.GetAttemptAsync(reqId, cts.Token);
+            if (gen != loadGeneration || reqId != AttemptId) return;
+            attempt = loaded;
+            ApplyServerPhase(attempt.Phase);
+            await LoadResultAsync(reqId, gen);
+        }
+        catch (Services.ApiNotFoundException)
+        { if (gen == loadGeneration && reqId == AttemptId) notFound = true; }
+        catch
+        { if (gen == loadGeneration && reqId == AttemptId) error = true; }
+        finally
+        { if (gen == loadGeneration && reqId == AttemptId) loading = false; }
+    }
+
+    private void ResetLocalAttemptState()
+    {
+        attempt = null; result = null; review = null;
+        selectedDiagnosisId = selectedRemediationId = null;
+        selectedDiagnosisLabel = selectedRemediationLabel = selectedVerificationLabel = null;
+        selectedVerificationIds.Clear();
+        pendingPhase = null;
+        displayPhase = AttemptDisplayPhase.Observation;
+        commandInput = string.Empty;
+        commandInputOpen = showRepresentativeCommands = false;
+        diagnosisSucceeded = remediationSucceeded = verificationSucceeded = false;
+        resultLoading = reviewLoading = false;
+        resultMessage = reviewMessage = retryMessage = null;
+        collapsiblesOpened = false;
+        ClearMutationMessages();
+    }
+
+    private string ActionDisplayLabel(Contracts.PublicActionView a) => showRepresentativeCommands ? ActionExample(a) ?? a.Label : a.Label;
+    private static string? ActionExample(Contracts.PublicActionView a) => a.ExecutionExample?.Text ?? a.RepresentativeCommand;
+    private bool IsIncorrect(string id) => attempt?.IncorrectOptionIds?.Contains(id, StringComparer.Ordinal) == true;
+
     private async Task SubmitActionAsync(string actionId)
     {
-        if (IsMutating || notFound || attempt is null)
-        {
-            return;
-        }
-
+        if (IsMutating || notFound || attempt is null) return;
         isSubmittingAction = true;
         submittingActionId = actionId;
         ClearMutationMessages();
+        var prevCount = attempt.RevealedEvidence.Length;
         try
         {
-            attempt = await Api.SubmitActionAsync(
-                AttemptId,
-                new Contracts.ActionRequest(actionId, null, attempt.StateVersion, Guid.NewGuid().ToString("N")),
-                cts.Token);
+            var updated = await Api.SubmitActionAsync(AttemptId,
+                new Contracts.ActionRequest(actionId, null, attempt.StateVersion, Guid.NewGuid().ToString("N")), cts.Token);
+            ApplyMutationResult(updated);
+            if (attempt is not null && attempt.RevealedEvidence.Length > prevCount)
+                try { await JS.InvokeVoidAsync("infralab.scrollToTop", evidencePanelRef); } catch { }
         }
-        catch (Exception exception)
-        {
-            await HandleMutationFailureAsync(exception, message => actionMessage = message, "調査操作を実行できませんでした。");
-        }
-        finally
-        {
-            isSubmittingAction = false;
-            submittingActionId = null;
-        }
+        catch (Exception ex) { await HandleMutationFailureAsync(ex, m => actionMessage = m, "調査操作を実行できませんでした。"); }
+        finally { isSubmittingAction = false; submittingActionId = null; }
     }
 
     private async Task SubmitCommandAsync()
     {
-        if (!CanSubmitCommand || attempt is null)
-        {
-            return;
-        }
-
+        if (!CanSubmitCommand || attempt is null) return;
         isSubmittingCommand = true;
         ClearMutationMessages();
+        var prevCount = attempt.RevealedEvidence.Length;
         try
         {
-            attempt = await Api.SubmitCommandAsync(
-                AttemptId,
-                new Contracts.ActionRequest(null, commandInput, attempt.StateVersion, Guid.NewGuid().ToString("N")),
-                cts.Token);
+            var updated = await Api.SubmitCommandAsync(AttemptId,
+                new Contracts.ActionRequest(null, commandInput, attempt.StateVersion, Guid.NewGuid().ToString("N")), cts.Token);
+            ApplyMutationResult(updated);
             commandInput = string.Empty;
+            if (attempt is not null && attempt.RevealedEvidence.Length > prevCount)
+                try { await JS.InvokeVoidAsync("infralab.scrollToTop", evidencePanelRef); } catch { }
         }
-        catch (Exception exception)
-        {
-            await HandleMutationFailureAsync(exception, message => commandMessage = message, "コマンドを実行できませんでした。");
-        }
-        finally
-        {
-            isSubmittingCommand = false;
-        }
+        catch (Exception ex) { await HandleMutationFailureAsync(ex, m => commandMessage = m, "コマンドを実行できませんでした。"); }
+        finally { isSubmittingCommand = false; }
     }
 
-    private async Task SubmitDiagnosisAsync()
+    private async Task SubmitDiagnosisAsync(string diagnosisId)
     {
-        if (!CanSubmitDiagnosis || attempt is null || selectedDiagnosisId is null)
-        {
-            return;
-        }
-
+        if (!CanSubmitDiagnosis || attempt is null) return;
         isSubmittingDiagnosis = true;
+        selectedDiagnosisId = diagnosisId;
+        selectedDiagnosisLabel = attempt.AvailableDiagnoses.Single(x => x.Id == diagnosisId).Label;
         ClearMutationMessages();
         try
         {
-            attempt = await Api.SubmitDiagnosisAsync(
-                AttemptId,
-                new Contracts.SubmitDiagnosisRequest(selectedDiagnosisId, attempt.StateVersion, Guid.NewGuid().ToString("N")),
-                cts.Token);
-            selectedDiagnosisId = null;
-        }
-        catch (Exception exception)
-        {
-            await HandleMutationFailureAsync(exception, message => diagnosisMessage = message, "診断回答を送信できませんでした。");
-        }
-        finally
-        {
+            var updated = await Api.SubmitDiagnosisAsync(AttemptId,
+                new Contracts.SubmitDiagnosisRequest(diagnosisId, attempt.StateVersion, Guid.NewGuid().ToString("N")), cts.Token);
+            ApplyMutationResult(updated.Attempt);
+            diagnosisSucceeded = updated.Outcome == "Correct";
+            diagnosisMessage   = diagnosisSucceeded ? "対処へ進みます…" : "incorrect";
+            diagnosisFeedback  = updated.Feedback;
+            focusDiagnosisResult = true;
+            // ★ Release isSubmitting BEFORE delay so Blazor renders the success/error block
             isSubmittingDiagnosis = false;
+            StateHasChanged(); // Force render at next await
+            if (diagnosisSucceeded) await AutoAdvanceAfterCorrectAsync(updated.Attempt.Id);
         }
+        catch (Exception ex)
+        {
+            if (ex is Services.ApiRequestException { StatusCode: System.Net.HttpStatusCode.UnprocessableEntity } r)
+            {
+                diagnosisIsBusinessError = true;
+                diagnosisMessage = r.Detail ?? "診断を見直してください。操作ログを確認して再試行できます。";
+                focusDiagnosisResult = true;
+            }
+            else
+                await HandleMutationFailureAsync(ex, m => diagnosisMessage = m, "診断回答を送信できませんでした。");
+        }
+        finally { isSubmittingDiagnosis = false; }
     }
 
-    private async Task SubmitRemediationAsync()
+    private async Task SubmitRemediationAsync(string remediationId)
     {
-        if (!CanSubmitRemediation || attempt is null || selectedRemediationId is null)
-        {
-            return;
-        }
-
+        if (!CanSubmitRemediation || attempt is null) return;
         isSubmittingRemediation = true;
+        selectedRemediationId = remediationId;
+        selectedRemediationLabel = attempt.AvailableRemediations.Single(x => x.Id == remediationId).Label;
         ClearMutationMessages();
         try
         {
-            attempt = await Api.SubmitRemediationAsync(
-                AttemptId,
-                new Contracts.SubmitRemediationRequest(selectedRemediationId, attempt.StateVersion, Guid.NewGuid().ToString("N")),
-                cts.Token);
-            selectedRemediationId = null;
-        }
-        catch (Exception exception)
-        {
-            await HandleMutationFailureAsync(exception, message => remediationMessage = message, "対処を実行できませんでした。");
-        }
-        finally
-        {
+            var updated = await Api.SubmitRemediationAsync(AttemptId,
+                new Contracts.SubmitRemediationRequest(remediationId, attempt.StateVersion, Guid.NewGuid().ToString("N")), cts.Token);
+            ApplyMutationResult(updated.Attempt);
+            remediationSucceeded = updated.Outcome == "Correct";
+            remediationMessage   = remediationSucceeded ? "復旧確認へ進みます…" : "incorrect";
+            remediationFeedback  = updated.Feedback;
+            focusRemediationResult = true;
             isSubmittingRemediation = false;
+            StateHasChanged();
+            if (remediationSucceeded) await AutoAdvanceAfterCorrectAsync(updated.Attempt.Id);
         }
+        catch (Exception ex)
+        {
+            if (ex is Services.ApiRequestException { StatusCode: System.Net.HttpStatusCode.UnprocessableEntity } r)
+            {
+                remediationIsBusinessError = true;
+                remediationMessage = r.Detail ?? "対処を見直してください。";
+                focusRemediationResult = true;
+            }
+            else
+                await HandleMutationFailureAsync(ex, m => remediationMessage = m, "対処を実行できませんでした。");
+        }
+        finally { isSubmittingRemediation = false; }
     }
 
     private async Task SubmitVerificationAsync()
@@ -443,144 +748,200 @@ else if (attempt is not null)
         ClearMutationMessages();
         try
         {
-            attempt = await Api.SubmitVerificationAsync(AttemptId, new Contracts.SubmitVerificationRequest(selectedVerificationIds.ToArray(), attempt.StateVersion, Guid.NewGuid().ToString("N")), cts.Token);
+            var answer = await Api.SubmitVerificationAsync(AttemptId,
+                new Contracts.SubmitVerificationRequest(selectedVerificationIds.ToArray(), attempt.StateVersion, Guid.NewGuid().ToString("N")), cts.Token);
+            ApplyMutationResult(answer.Attempt);
             selectedVerificationIds.Clear();
             await LoadResultAsync();
+            if (pendingPhase is not null) AdvanceToPendingPhase();
         }
-        catch (Exception exception)
+        catch (Exception ex)
         {
-            await HandleMutationFailureAsync(exception, message => verificationMessage = message, "復旧確認を送信できませんでした。");
+            if (ex is Services.ApiRequestException { StatusCode: System.Net.HttpStatusCode.UnprocessableEntity })
+            { verificationIsBusinessError = true; verificationMessage = "復旧を確認できませんでした。確認項目を見直してください。"; }
+            else
+                await HandleMutationFailureAsync(ex, m => verificationMessage = m, "復旧確認を送信できませんでした。");
         }
-        finally
+        finally { isSubmittingVerification = false; }
+    }
+
+    private async Task SubmitSingleVerificationAsync(string verificationId)
+    {
+        if (!CanSubmitSingleVerification || attempt is null) return;
+        isSubmittingVerification = true;
+        selectedVerificationIds.Clear();
+        selectedVerificationIds.Add(verificationId);
+        selectedVerificationLabel = attempt.AvailableVerifications.Single(x => x.Id == verificationId).Label;
+        ClearMutationMessages();
+        try
         {
+            var updated = await Api.SubmitVerificationAsync(AttemptId,
+                new Contracts.SubmitVerificationRequest([verificationId], attempt.StateVersion, Guid.NewGuid().ToString("N")), cts.Token);
+            ApplyMutationResult(updated.Attempt);
+            verificationSucceeded = updated.Outcome == "Correct";
+            verificationMessage   = verificationSucceeded ? "結果・解説へ進みます…" : "incorrect";
+            verificationFeedback  = updated.Feedback;
+            focusVerificationResult = true;
             isSubmittingVerification = false;
+            StateHasChanged();
+            if (verificationSucceeded) await AutoAdvanceAfterCorrectAsync(updated.Attempt.Id);
         }
+        catch (Exception ex)
+        {
+            if (ex is Services.ApiRequestException { StatusCode: System.Net.HttpStatusCode.UnprocessableEntity } r)
+            { verificationIsBusinessError = true; verificationMessage = r.Detail ?? "復旧確認計画を見直してください。"; focusVerificationResult = true; }
+            else
+                await HandleMutationFailureAsync(ex, m => verificationMessage = m, "復旧確認を送信できませんでした。");
+        }
+        finally { isSubmittingVerification = false; }
     }
 
     private void ToggleVerification(string id)
-    {
-        if (!selectedVerificationIds.Add(id)) selectedVerificationIds.Remove(id);
-    }
+    { if (!selectedVerificationIds.Add(id)) selectedVerificationIds.Remove(id); }
 
-    private async Task LoadResultAsync()
+    private async Task LoadResultAsync(Guid? expectedId = null, long? expectedGen = null)
     {
-        result = null;
-        resultMessage = null;
+        var reqId = expectedId ?? AttemptId;
+        var gen   = expectedGen ?? loadGeneration;
+        result = null; resultMessage = null;
         if (attempt is null || attempt.Phase != 5 || attempt.Status != 1) return;
         resultLoading = true;
         try
         {
-            result = await Api.GetAttemptResultAsync(AttemptId, cts.Token);
-            await LoadReviewAsync();
+            var r = await Api.GetAttemptResultAsync(reqId, cts.Token);
+            if (gen != loadGeneration || reqId != AttemptId) return;
+            result = r;
+            await LoadReviewAsync(reqId, gen);
         }
-        catch
-        {
-            resultMessage = "結果を読み込めませんでした。";
-        }
-        finally
-        {
-            resultLoading = false;
-        }
+        catch { if (gen == loadGeneration && reqId == AttemptId) resultMessage = "結果を読み込めませんでした。"; }
+        finally { if (gen == loadGeneration && reqId == AttemptId) resultLoading = false; }
     }
 
-    private async Task LoadReviewAsync()
+    private async Task LoadReviewAsync(Guid? expectedId = null, long? expectedGen = null)
     {
-        review = null;
-        reviewMessage = null;
+        var reqId = expectedId ?? AttemptId;
+        var gen   = expectedGen ?? loadGeneration;
+        review = null; reviewMessage = null;
         if (result is null) return;
         reviewLoading = true;
         try
         {
-            review = await Api.GetAttemptReviewAsync(AttemptId, cts.Token);
+            var r = await Api.GetAttemptReviewAsync(reqId, cts.Token);
+            if (gen != loadGeneration || reqId != AttemptId) return;
+            review = r;
         }
-        catch (OperationCanceledException)
-        {
-        }
-        catch
-        {
-            reviewMessage = "振り返りを読み込めませんでした。";
-        }
-        finally
-        {
-            reviewLoading = false;
-        }
+        catch (OperationCanceledException) { }
+        catch { if (gen == loadGeneration && reqId == AttemptId) reviewMessage = "振り返りを読み込めませんでした。"; }
+        finally { if (gen == loadGeneration && reqId == AttemptId) reviewLoading = false; }
     }
 
     private async Task StartRetryAsync()
     {
-        if (!CanStartRetry || result is null)
-        {
-            return;
-        }
-
-        isStartingRetry = true;
-        retryMessage = null;
+        if (!CanStartRetry || result is null) return;
+        isStartingRetry = true; retryMessage = null;
         try
         {
-            var newAttempt = await Api.StartAttemptAsync(result.ScenarioId, cts.Token);
-            Navigation.NavigateTo($"/attempts/{newAttempt.Id}");
+            var a = await Api.StartAttemptAsync(result.ScenarioId, cts.Token);
+            Navigation.NavigateTo($"/attempts/{a.Id}");
         }
-        catch (OperationCanceledException)
-        {
-        }
-        catch
-        {
-            retryMessage = "新しい演習を開始できませんでした。";
-        }
-        finally
-        {
-            isStartingRetry = false;
-        }
+        catch (OperationCanceledException) { }
+        catch { retryMessage = "新しい演習を開始できませんでした。"; }
+        finally { isStartingRetry = false; }
     }
 
     private void ClearMutationMessages()
     {
-        actionMessage = null;
-        commandMessage = null;
-        diagnosisMessage = null;
-        remediationMessage = null;
-        verificationMessage = null;
+        actionMessage = commandMessage = diagnosisMessage = remediationMessage = verificationMessage = null;
+        diagnosisIsBusinessError = remediationIsBusinessError = verificationIsBusinessError = false;
+        diagnosisFeedback = remediationFeedback = verificationFeedback = null;
     }
 
-    private async Task HandleMutationFailureAsync(Exception exception, Action<string> setMessage, string operationMessage)
+    private async Task HandleMutationFailureAsync(Exception ex, Action<string> set, string msg)
     {
-        if (exception is OperationCanceledException)
-        {
-            return;
-        }
-
-        if (exception is Services.ApiNotFoundException)
-        {
-            notFound = true;
-            return;
-        }
-
-        if (exception is Services.ApiRequestException { StatusCode: System.Net.HttpStatusCode.Conflict })
+        if (ex is OperationCanceledException) return;
+        if (ex is Services.ApiNotFoundException) { notFound = true; return; }
+        if (ex is Services.ApiRequestException { StatusCode: System.Net.HttpStatusCode.Conflict })
         {
             try
             {
                 attempt = await Api.GetAttemptAsync(AttemptId, cts.Token);
+                ApplyServerPhase(attempt.Phase);
                 await LoadResultAsync();
-                setMessage("状態が更新されたため、最新の内容を読み込みました。もう一度操作してください。");
+                set("状態が更新されたため、最新の内容を読み込みました。もう一度操作してください。");
             }
-            catch (OperationCanceledException)
-            {
-            }
-            catch
-            {
-                setMessage("最新の状態を読み込めませんでした。画面を再読み込みしてください。");
-            }
-
+            catch (OperationCanceledException) { }
+            catch { set("最新の状態を読み込めませんでした。画面を再読み込みしてください。"); }
             return;
         }
+        set(msg);
+    }
 
-        setMessage(operationMessage);
+    private async Task AutoAdvanceAfterCorrectAsync(Guid responseId)
+    {
+        // 2 秒間正答フィードバックを表示してから次フェーズへ
+        try { await Task.Delay(TimeSpan.FromSeconds(2), cts.Token); }
+        catch (OperationCanceledException) { return; }
+        if (responseId != AttemptId || attempt is null) return;
+        AdvanceToPendingPhase();
+        if (attempt.Phase == 5 && attempt.Status == 1) await LoadResultAsync(responseId, loadGeneration);
     }
 
     public void Dispose() => cts.Cancel();
 
-    private static bool CanSubmitCommands(int phase) => phase is 0 or 1;
-    private static string PhaseLabel(int value) => value switch { 0 => "観察", 1 => "調査", 2 => "診断", 3 => "対処", 4 => "復旧確認", 5 => "レビュー", _ => "不明なフェーズ" };
-    private static string StatusLabel(int value) => value switch { 0 => "進行中", 1 => "完了", 2 => "中断", _ => "不明な状態" };
-    private static string EvidenceTypeLabel(int value) => value switch { 0 => "ログ", 1 => "コマンド出力", 2 => "メトリクス", 3 => "設定", _ => "不明" };
+    private void AdvanceToPendingPhase()
+    {
+        var s = AttemptPresentation.AdvancePendingPhase(displayPhase, pendingPhase);
+        displayPhase = s.DisplayPhase;
+        pendingPhase = s.PendingPhase;
+        focusDiagnosisAfterAdvance = displayPhase == AttemptDisplayPhase.Diagnosis;
+        if (displayPhase == AttemptDisplayPhase.Review) focusReviewScore = true;
+    }
+
+    private async Task AdvanceToDiagnosisAsync()
+    {
+        if (attempt is null || !AttemptPresentation.CanAdvanceToDiagnosis(attempt) || IsMutating) return;
+        isAdvancingToDiagnosis = true;
+        ClearMutationMessages();
+        try
+        {
+            var updated = await Api.AdvanceToDiagnosisAsync(AttemptId,
+                new Contracts.AdvanceToDiagnosisRequest(attempt.StateVersion, Guid.NewGuid().ToString("N")), cts.Token);
+            ApplyMutationResult(updated);
+            AdvanceToPendingPhase();
+        }
+        catch (Exception ex) { await HandleMutationFailureAsync(ex, m => actionMessage = m, "診断の開始を送信できませんでした。"); }
+        finally { isAdvancingToDiagnosis = false; }
+    }
+
+    private void ApplyMutationResult(Contracts.PublicAttemptView updated)
+    {
+        if (updated.Id != AttemptId) return;
+        attempt = updated;
+        var s = AttemptPresentation.DeferTransition(displayPhase, updated.Phase);
+        displayPhase = s.DisplayPhase;
+        pendingPhase = s.PendingPhase;
+    }
+
+    private void ApplyServerPhase(int serverPhase)
+    {
+        var s = AttemptPresentation.ForServerPhase(serverPhase);
+        displayPhase = s.DisplayPhase;
+        pendingPhase = s.PendingPhase;
+    }
+
+    private void ToggleCommandInput() => commandInputOpen = !commandInputOpen;
+
+    private static string MessageClass(string? m) =>
+        m?.StartsWith("状態が更新", StringComparison.Ordinal) == true ? "msg-conflict" : "msg-error";
+    private static string PhaseLabel(AttemptDisplayPhase v) => v switch
+    {
+        AttemptDisplayPhase.Investigation => "調査",
+        AttemptDisplayPhase.Diagnosis     => "診断",
+        AttemptDisplayPhase.Remediation   => "対処",
+        AttemptDisplayPhase.Verification  => "復旧確認",
+        AttemptDisplayPhase.Review        => "結果・解説",
+        _                                 => "—"
+    };
+    private static string EvidenceBadgeClass(int t) => t switch { 0 => "badge-log", 1 => "badge-cmd", 2 => "badge-metric", 3 => "badge-config", _ => "badge-unknown" };
+    private static string EvidenceTypeLabel(int t) => t switch { 0 => "ログ", 1 => "コマンド出力", 2 => "メトリクス", 3 => "設定", _ => "不明" };
 }

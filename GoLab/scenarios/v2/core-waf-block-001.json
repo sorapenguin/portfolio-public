@@ -1,0 +1,54 @@
+{
+  "schema_version": 2,
+  "type": "core",
+  "id": "core-waf-block-001",
+  "title": "WAF Block",
+  "description": "クライアントからApplicationまでの経路と各Nodeの設定を読み、どのNodeが最終HTTPレスポンスを生成するかを予測します。",
+  "difficulty": "beginner",
+  "category": "security",
+  "learning_goals": [
+    "WAFのblock設定から通信がどこで終了するか判断できる",
+    "後段Applicationが正常でも、到達前にWAFがレスポンスを生成し得ると理解する",
+    "HTTP 403とResponse Origin Nodeを対応付けられる"
+  ],
+  "topology": {
+    "nodes": [
+      {
+        "id": "client",
+        "type": "client",
+        "label": "Client"
+      },
+      {
+        "id": "waf",
+        "type": "waf",
+        "label": "WAF",
+        "settings": {
+          "block": true
+        }
+      },
+      {
+        "id": "app",
+        "type": "app",
+        "label": "Application",
+        "settings": {
+          "response_delay_ms": 1000,
+          "response_type": "normal",
+          "status_code": 200
+        }
+      }
+    ],
+    "edges": [
+      {
+        "from": "client",
+        "to": "waf"
+      },
+      {
+        "from": "waf",
+        "to": "app"
+      }
+    ]
+  },
+  "explanation": "WAFのblockはtrueです。このため通信はWAFで終了し、Applicationの200設定は使用されません。WAFが403レスポンスを生成し、Applicationはnot_reachedになります。",
+  "wrong_explanation": "Applicationに200が設定されていても、WAFで遮断された場合は到達しません。Clientはレスポンスを受信するNodeであり、今回のResponse Originではありません。経路上で最初に成立する終端条件を確認しましょう。",
+  "cloud_concept_refs": []
+}

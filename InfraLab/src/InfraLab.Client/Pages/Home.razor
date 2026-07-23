@@ -1,4 +1,19 @@
-﻿@page "/"
+@page "/"
 
 <PageTitle>InfraLab</PageTitle>
-<section class="hero"><h1>InfraLab</h1><p>障害調査・原因特定・対処・復旧確認を練習する学習サービスです。</p><a class="button" href="scenarios">シナリオ一覧へ</a></section>
+
+<div class="hero-section">
+    <p class="hero-eyebrow">Infrastructure Lab</p>
+    <h1 class="hero-title">障害を、見抜く力を鍛える</h1>
+    <p class="hero-body">
+        ログ・コマンド出力・メトリクスをもとに原因を特定し、
+        適切な対処と復旧確認を実践するトラブルシューティング演習サービスです。
+    </p>
+    <h2 class="section-title">カテゴリを選ぶ</h2>
+    <div class="cards-grid">
+        <a class="scenario-card" href="scenarios?category=lpic1"><h3>LPIC / Linux</h3><p>Linux基礎の障害調査演習</p></a>
+        <div class="scenario-card" aria-disabled="true"><h3>AWS</h3><p>準備中</p></div>
+        <div class="scenario-card" aria-disabled="true"><h3>Security</h3><p>準備中</p></div>
+        <div class="scenario-card" aria-disabled="true"><h3>Network</h3><p>準備中</p></div>
+    </div>
+</div>

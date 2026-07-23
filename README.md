@@ -46,7 +46,8 @@
 
 | プロジェクト | 技術 | 概要 |
 |---|---|---|
-| [InfraLab](./InfraLab) | C# / ASP.NET Core 10 / Blazor WASM / PostgreSQL | インフラ障害調査を題材にした学習アプリ。シナリオ駆動型採点エンジン・Clean Architecture |
+| [InfraLab](./InfraLab) | C# / ASP.NET Core 10 / Blazor WASM / PostgreSQL | インフラ障害の調査・診断・復旧を状態遷移で学ぶシナリオ型学習アプリ。サーバー権威の状態機械・楽観ロック・冪等性制御・バックアップ / リストア / ロールバック運用スクリプト一式 |
+| [GoLab](./GoLab) | Go（標準ライブラリのみ） | DNS→CDN→WAF→LB→リバースプロキシ→アプリ→DB のリクエスト経路を決定論的シミュレーションで学ぶツール。仮想時間・SSRF 回避方針を実装 |
 | [Calendo](./Calendo) | C# / ASP.NET Core / SignalR / EF Core / PostgreSQL | 複数ユーザー対応のリアルタイム共有カレンダー |
 
 ---
@@ -55,4 +56,5 @@
 
 - 各プロジェクトの `local.properties`・`.env`・ビルド成果物は含まれません
 - `puzzle-web/js/config.js` の API URL はダミー値に置き換えています
-- スナップショット日: 2026-07-15
+- InfraLab / GoLab は開発中のプロトタイプです。両者とも本番 VPS デプロイ前の段階で、記載の運用スクリプト・デプロイ構成は設計・検証用のサンプルです
+- スナップショット日: 2026-07-23（InfraLab は更新、GoLab は新規追加）

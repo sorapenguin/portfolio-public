@@ -1,0 +1,53 @@
+{
+  "schema_version": 2,
+  "type": "core",
+  "id": "core-malformed-upstream-001",
+  "title": "Malformed Upstream Response",
+  "description": "クライアントからApplicationまでの経路と各Nodeの設定を読み、最終HTTPレスポンスを生成するNodeを予測します。",
+  "difficulty": "beginner",
+  "category": "error",
+  "learning_goals": [
+    "Applicationが返した上流応答と、Clientへ返る最終HTTPレスポンスを区別できる",
+    "Reverse ProxyがMalformedな上流応答を受けて502を生成する因果関係を理解する",
+    "Applicationが問題のある応答を送った場所でも、最終Response OriginはProxyになり得ると理解する"
+  ],
+  "topology": {
+    "nodes": [
+      {
+        "id": "client",
+        "type": "client",
+        "label": "Client"
+      },
+      {
+        "id": "proxy",
+        "type": "proxy",
+        "label": "Reverse Proxy",
+        "settings": {
+          "timeout_ms": 5000
+        }
+      },
+      {
+        "id": "app",
+        "type": "app",
+        "label": "Application",
+        "settings": {
+          "response_delay_ms": 1000,
+          "response_type": "malformed"
+        }
+      }
+    ],
+    "edges": [
+      {
+        "from": "client",
+        "to": "proxy"
+      },
+      {
+        "from": "proxy",
+        "to": "app"
+      }
+    ]
+  },
+  "explanation": "Applicationのresponse_typeはmalformedで、Proxy Timeoutは成立していません。Applicationは正常なHTTP Statusを生成せず、Reverse ProxyがMalformedな上流応答を受信します。そのためClient向け502を生成するResponse OriginはReverse Proxyです。",
+  "wrong_explanation": "問題のある応答を送ったApplicationと、最終HTTPレスポンス生成Nodeは同一とは限りません。Applicationにはstatus_codeが存在せず、502はReverse Proxyが上流応答を解釈できなかった結果として生成します。",
+  "cloud_concept_refs": []
+}

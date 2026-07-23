@@ -102,7 +102,7 @@ public sealed class PostgresAttemptStoreTests(PostgresFixture fixture) : IAsyncL
     {
         var id = await StartAsync();
         var key = Guid.NewGuid().ToString("N");
-        var score = new ScoreBreakdown(40, 25, 20, 10, 0, 95);
+        var score = new ScoreBreakdown(30, 30, 30, 10, 0, 100);
         await using (var db = fixture.CreateContext())
         {
             var result = await new EfAttemptStore(db).MutateAsync(id, 0, key, "verification", "verify", "verify", state => state with { Phase = ScenarioPhase.Review, StateVersion = 1 }, _ => score);
@@ -113,6 +113,8 @@ public sealed class PostgresAttemptStoreTests(PostgresFixture fixture) : IAsyncL
             var attempt = (await new EfAttemptStore(reloaded).FindAsync(id))!;
             Assert.Equal(AttemptStatus.Completed, attempt.Status);
             Assert.Equal(score, attempt.Score);
+            Assert.Equal(attempt.Score!.Investigation + attempt.Score.Diagnosis + attempt.Score.Remediation + attempt.Score.Verification, attempt.Score.Total);
+            Assert.Equal(0, attempt.Score.Safety);
             var replay = await new EfAttemptStore(reloaded).MutateAsync(id, 0, key, "verification", "verify", "verify", Increment);
             Assert.True(replay.WasReplay);
             Assert.Equal(score, replay.Attempt.Score);
